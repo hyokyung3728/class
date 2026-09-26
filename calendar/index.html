@@ -706,9 +706,11 @@ function renderDayDetail(){
       }
     }
     const linkHtml = ev.link ? `<a href="${ev.link}" target="_blank" rel="noopener" style="font-size:12px;color:var(--blue);display:inline-block;margin-top:4px;">🔗 링크 열기</a>` : '';
+    const catHtml = ev.category ? `<div class="badge" style="color:${ev.category==='업무'?'#2563EB':'#16A34A'};background:${ev.category==='업무'?'#EFF6FF':'#DCFCE7'};">${ev.category}</div>` : '';
     html += `<div class="card" style="display:flex;flex-direction:column;gap:2px;">
-      <div style="display:flex;gap:10px;align-items:center;">
+      <div style="display:flex;gap:6px;align-items:center;">
         <div class="badge" style="color:${'#7C3AED'};background:${'#F3E8FF'};">${ev.time||''}</div>
+        ${catHtml}
         <div style="flex:1;font-size:12.5px;">${ev.text}</div>
         <button class="iconbtn" onclick="deletePersonalEvent('${id}')">✕</button>
       </div>
@@ -882,6 +884,8 @@ async function clearDayOverride(){
 function openPersonalEventModal(){
   document.getElementById('modalBody').innerHTML = `
     <div class="modal-title"><span>개인 일정 추가</span><button onclick="closeModal()">✕</button></div>
+    <div class="field"><label>구분</label>
+      <select id="pe_category"><option value="업무">업무</option><option value="개인">개인</option></select></div>
     <div class="field"><label>시각</label><input id="pe_time" type="time" value="15:00"></div>
     <div class="field"><label>내용</label><input id="pe_text" placeholder="예: 학부모 상담"></div>
     <div class="field"><label>링크 (선택)</label><input id="pe_link" type="url" placeholder="예: https://..."></div>
@@ -923,12 +927,13 @@ function compressImageFile(file, maxDim=1280, quality=0.72){
   });
 }
 async function savePersonalEvent(){
+  const category = document.getElementById('pe_category').value;
   const time = document.getElementById('pe_time').value;
   const text = document.getElementById('pe_text').value.trim();
   const link = document.getElementById('pe_link').value.trim();
   const file = document.getElementById('pe_file').files[0];
   if(!text){ alert('내용을 입력해주세요'); return; }
-  const data = {time,text};
+  const data = {category,time,text};
   if(link) data.link = link;
   if(file){
     const MAX_DOC_SIZE = 2*1024*1024;
@@ -1244,31 +1249,39 @@ function renderAcademicList(){
       <div style="width:110px;">${fmtShort(e.start)}${e.end!==e.start?` ~ ${fmtShort(e.end)}`:''}</div>
       <div class="badge ${e.type==='시험기간'?'orange':(e.type==='방학'||e.type==='행사(진도포함)'?'':'gray')}" style="${e.type==='방학'?'color:#7C3AED;background:#F3E8FF;':(e.type==='행사(진도포함)'?'color:#16A34A;background:#DCFCE7;':'')}">${e.type}</div>
       <div style="flex:1;">${e.memo||''}</div>
+      <button class="iconbtn" onclick="openAcademicModal('${id}')">✎</button>
       <button class="iconbtn" onclick="deleteAcademic('${id}')">✕</button>
     </div>`).join('');
 }
 
-function openAcademicModal(){
+function openAcademicModal(id){
+  const existing = id ? STATE.academicCalendar[id] : null;
+  const typeOptions = ['공휴일','시험기간','방학','행사(진도포함)','행사(진도미포함)'];
   document.getElementById('modalBody').innerHTML = `
-    <div class="modal-title"><span>학사일정 추가</span><button onclick="closeModal()">✕</button></div>
-    <div class="field"><label>시작일</label><input id="ac_start" type="date"></div>
-    <div class="field"><label>종료일 (하루면 동일하게)</label><input id="ac_end" type="date"></div>
-    <div class="field"><label>구분</label><select id="ac_type"><option>공휴일</option><option>시험기간</option><option>방학</option><option>행사(진도포함)</option><option>행사(진도미포함)</option></select></div>
+    <div class="modal-title"><span>학사일정 ${existing?'수정':'추가'}</span><button onclick="closeModal()">✕</button></div>
+    <div class="field"><label>시작일</label><input id="ac_start" type="date" value="${existing?existing.start:''}"></div>
+    <div class="field"><label>종료일 (하루면 동일하게)</label><input id="ac_end" type="date" value="${existing?existing.end:''}"></div>
+    <div class="field"><label>구분</label><select id="ac_type">${typeOptions.map(t=>`<option ${existing&&existing.type===t?'selected':''}>${t}</option>`).join('')}</select></div>
     <div style="font-size:11px;color:#9CA3AF;margin-top:-6px;">행사(진도포함)은 실제 수업·진도 기록이 이뤄지는 날이라 달력에도 평소 수업처럼 표시돼요. 행사(진도미포함)은 공휴일처럼 수업이 없는 날로 표시돼요.</div>
-    <div class="field"><label>메모</label><input id="ac_memo" placeholder="예: 개천절"></div>
-    <button class="btn primary full" onclick="saveAcademic()">저장</button>
+    <div class="field"><label>메모</label><input id="ac_memo" placeholder="예: 개천절" value="${existing?(existing.memo||''):''}"></div>
+    <button class="btn primary full" onclick="saveAcademic(${existing?`'${id}'`:'null'})">저장</button>
   `;
   document.getElementById('modalOverlay').classList.add('open');
 }
-async function saveAcademic(){
+async function saveAcademic(id){
   const start = document.getElementById('ac_start').value;
   const end = document.getElementById('ac_end').value || start;
   const type = document.getElementById('ac_type').value;
   const memo = document.getElementById('ac_memo').value.trim();
   if(!start){ alert('날짜를 입력해주세요'); return; }
   const data = {start,end,type,memo};
-  const res = await dbPush(`academicCalendar/${STATE.termId}`, data);
-  STATE.academicCalendar[res.name]=data;
+  if(id){
+    await dbSet(`academicCalendar/${STATE.termId}/${id}`, data);
+    STATE.academicCalendar[id]=data;
+  } else {
+    const res = await dbPush(`academicCalendar/${STATE.termId}`, data);
+    STATE.academicCalendar[res.name]=data;
+  }
   closeModal(); renderSettingsScreen(); renderCalendar();
 }
 async function deleteAcademic(id){
