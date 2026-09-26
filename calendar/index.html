@@ -66,6 +66,9 @@
   .day-cell .dnum{font-size:13px;color:var(--ink);}
   .day-cell.today{background:var(--blue-light);border:1.5px solid var(--blue);}
   .day-cell.today .dnum{color:var(--blue-dark);font-weight:700;}
+  .day-cell.holiday-cell{background:#F3F4F6;}
+  .day-cell.holiday-cell .dnum{color:#9CA3AF;}
+  .day-cell.holiday-cell.today{background:var(--blue-light);}
   .day-cell .dots{display:flex;gap:2px;margin-top:4px;}
   .dot{width:5px;height:5px;border-radius:50%;}
   .dot.blue{background:var(--blue);} .dot.orange{background:var(--orange);} .dot.gray{background:var(--gray-faint);}
@@ -163,7 +166,7 @@
   /* ---------- 태블릿·데스크탑: 화면을 넓게 활용 ---------- */
   @media (min-width:700px){
     #app{max-width:960px;}
-    .day-grid{grid-auto-rows:96px;}
+    .day-grid{grid-auto-rows:82px;}
     .day-cell .dnum{font-size:14px;}
     #settingsBody{display:block;column-count:2;column-gap:18px;}
     #settingsBody .settings-section{display:inline-block;width:100%;margin-bottom:14px;}
@@ -498,15 +501,21 @@ function renderCalendar(){
     const cellDate = new Date(d.getFullYear(), d.getMonth(), dayNum);
     const dk = dateKey(cellDate);
     const isToday = dk===todayKey();
-    const periods = getPeriodsForDate(cellDate);
+    const acEntry = Object.values(STATE.academicCalendar).find(e=> dk>=e.start && dk<=e.end);
     let dots='';
-    if(periods.length){
-      const hasUnrecorded = periods.some(p=>p.status==='unrecorded');
-      const allHoliday = periods.every(p=>p.status==='holiday');
-      if(allHoliday){ dots = `<div class="dots"><span class="dot gray"></span></div>`; }
-      else { dots = `<div class="dots"><span class="dot ${hasUnrecorded?'orange':'blue'}"></span></div>`; }
+    let holidayClass='';
+    if(acEntry){
+      // 학사일정(공휴일·시험기간·방학)에 등록된 날은 그 반에 수업이 있는지 여부와 상관없이 항상 표시돼요
+      holidayClass='holiday-cell';
+      dots = `<div class="dots"><span class="dot gray"></span></div>`;
+    } else {
+      const periods = getPeriodsForDate(cellDate);
+      if(periods.length){
+        const hasUnrecorded = periods.some(p=>p.status==='unrecorded');
+        dots = `<div class="dots"><span class="dot ${hasUnrecorded?'orange':'blue'}"></span></div>`;
+      }
     }
-    html += `<button class="day-cell ${isToday?'today':''}" onclick="openDayDetail('${dk}')">
+    html += `<button class="day-cell ${isToday?'today':''} ${holidayClass}" onclick="openDayDetail('${dk}')">
       <div class="dnum">${dayNum}</div>${dots}
     </button>`;
   }
@@ -556,9 +565,16 @@ function renderDayDetail(){
   const dk = STATE.selectedDateKey;
   const d = parseDateKey(dk);
   const periods = getPeriodsForDate(d);
+  const acEntry = Object.values(STATE.academicCalendar).find(e=> dk>=e.start && dk<=e.end);
   let html = `<div class="section-label">오늘의 수업</div>`;
 
-  if(!periods.length){
+  if(acEntry && !periods.length){
+    // 시간표상 수업이 없는 날(주말 등)이라도 학사일정에 등록된 날이면 보여줘요
+    html += `<div class="card">
+      <div class="card-top"><div class="cname">${acEntry.type||'학사일정'}</div><div class="badge gray">${acEntry.type||'휴업일'}</div></div>
+      <div class="sub">${acEntry.memo||''}</div>
+    </div>`;
+  } else if(!periods.length){
     html += `<div class="empty-hint">이 날은 시간표상 수업이 없어요.</div>`;
   }
 
