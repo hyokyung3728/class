@@ -1,0 +1,1098 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>캘린더·진도표·학생기록</title>
+
+<!-- iOS 홈 화면 추가 시 주소창 없이 전체화면으로 열리게 하는 설정 -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="수업기록">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#2563EB">
+
+<!-- 학생 명단 엑셀(.xlsx) 업로드 파싱용 라이브러리 (인터넷 연결 필요) -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+<style>
+  :root{
+    --blue:#2563EB; --blue-light:#DBEAFE; --blue-lighter:#EFF6FF; --blue-dark:#1D4ED8;
+    --orange:#EA580C; --orange-dark:#C2410C; --orange-light:#FFEDD5;
+    --purple:#7C3AED; --purple-light:#F3E8FF;
+    --gray-bg:#F5F5F4; --gray-border:#E5E7EB; --gray-text:#6B7280; --gray-faint:#9CA3AF;
+    --ink:#1F2937; --white:#FFFFFF;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;height:100%;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:var(--ink);background:var(--gray-bg);}
+  button,input,select,textarea{font-family:inherit;}
+  button{cursor:pointer;}
+  a{color:inherit;}
+
+  /* ---------- 잠금 화면 ---------- */
+  #pinGate{position:fixed;inset:0;background:var(--gray-bg);display:none;align-items:center;justify-content:center;z-index:200;padding:20px;}
+  .pin-box{background:#fff;border:1px solid var(--gray-border);border-radius:16px;padding:28px 24px;width:100%;max-width:320px;text-align:center;}
+  .pin-box input{width:100%;box-sizing:border-box;font-size:20px;letter-spacing:8px;text-align:center;padding:12px;border:1px solid var(--gray-border);border-radius:10px;margin-top:12px;}
+  .pin-box button{width:100%;margin-top:14px;background:var(--blue);color:#fff;border:none;border-radius:10px;padding:12px;font-size:14px;font-weight:700;}
+
+  /* ---------- 전체 앱 셸 ---------- */
+  #app{display:none;flex-direction:column;height:100%;max-width:520px;margin:0 auto;background:var(--gray-bg);position:relative;}
+  .screen{display:none;flex-direction:column;height:100%;min-height:0;}
+  .screen.active{display:flex;}
+  .scroll-area{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;}
+
+  /* ---------- 상단 공통 헤더(뒤로가기용) ---------- */
+  .subheader{display:flex;align-items:center;gap:10px;padding:18px 20px 8px;flex-shrink:0;}
+  .back-btn{text-decoration:none;color:var(--gray-text);font-size:20px;width:30px;height:30px;display:flex;align-items:center;justify-content:center;border:none;background:none;border-radius:8px;}
+  .subheader .title{font-size:16px;font-weight:700;}
+
+  /* ---------- 캘린더 화면 ---------- */
+  .cal-header{flex-shrink:0;padding:18px 20px 8px;}
+  .cal-nav{display:flex;align-items:center;justify-content:space-between;}
+  .cal-nav button{border:none;background:none;font-size:20px;color:var(--gray-faint);padding:6px 10px;border-radius:8px;}
+  .cal-nav .month-label{font-size:17px;font-weight:700;}
+  .quick-banner{margin:12px 0 10px;padding:14px 16px;background:var(--blue);border-radius:12px;display:flex;align-items:center;justify-content:space-between;gap:10px;}
+  .quick-banner .qb-sub{font-size:11px;color:#BFDBFE;font-weight:600;letter-spacing:.02em;}
+  .quick-banner .qb-main{font-size:15px;color:#fff;font-weight:700;margin-top:3px;}
+  .quick-banner button{text-decoration:none;background:#fff;color:var(--blue);font-size:13px;font-weight:700;padding:9px 14px;border-radius:8px;border:none;white-space:nowrap;}
+  .weekday-row{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));padding:0 4px;margin-top:2px;}
+  .weekday-row div{text-align:center;font-size:11px;font-weight:700;color:var(--gray-faint);padding:4px 0;}
+  .weekday-row div:first-child{color:#F97316;}
+  .weekday-row div:last-child{color:var(--blue);}
+  .day-grid-wrap{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;padding:0 12px 10px;}
+  .day-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));grid-auto-rows:60px;gap:4px;}
+  .day-cell{border:none;background:#fff;border-radius:8px;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;padding-top:7px;font-family:inherit;position:relative;}
+  .day-cell.other-month{background:transparent;}
+  .day-cell .dnum{font-size:13px;color:var(--ink);}
+  .day-cell.today{background:var(--blue-light);border:1.5px solid var(--blue);}
+  .day-cell.today .dnum{color:var(--blue-dark);font-weight:700;}
+  .day-cell .dots{display:flex;gap:2px;margin-top:4px;}
+  .dot{width:5px;height:5px;border-radius:50%;}
+  .dot.blue{background:var(--blue);} .dot.orange{background:var(--orange);} .dot.gray{background:var(--gray-faint);}
+
+  /* ---------- 하단 탭바 ---------- */
+  #tabbar{flex-shrink:0;display:flex;align-items:center;border-top:1px solid var(--gray-border);background:#fff;padding:6px 8px calc(8px + env(safe-area-inset-bottom));}
+  #tabbar.hidden{display:none;}
+  .tabbtn{border:none;background:none;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:11px;padding:6px 0;flex:1;color:var(--gray-faint);}
+  .tabbtn.active{color:var(--blue);}
+
+  /* ---------- 날짜상세 화면 ---------- */
+  .period-list{padding:10px 20px 16px;display:flex;flex-direction:column;gap:12px;}
+  .section-label{font-size:11px;color:var(--gray-faint);font-weight:700;letter-spacing:.03em;margin-top:6px;}
+  .card{background:#fff;border-radius:12px;padding:14px 16px;border:1px solid var(--gray-border);}
+  .card.warn{border:1.5px solid #FDBA74;}
+  .card-top{display:flex;justify-content:space-between;align-items:center;gap:8px;}
+  .card-top .cname{font-size:14px;font-weight:700;}
+  .badge{font-size:11px;font-weight:700;padding:3px 9px;border-radius:6px;white-space:nowrap;}
+  .badge.blue{color:var(--blue);background:var(--blue-light);}
+  .badge.orange{color:var(--orange-dark);background:var(--orange-light);}
+  .badge.gray{color:var(--gray-text);background:#F3F4F6;}
+  .card .sub{font-size:12.5px;color:var(--gray-text);margin-top:6px;}
+  .card-actions{display:flex;gap:8px;margin-top:10px;}
+  .btn{border:none;border-radius:8px;padding:9px 0;font-size:12px;font-weight:700;flex:1;font-family:inherit;}
+  .btn.primary{background:var(--blue);color:#fff;}
+  .btn.secondary{background:var(--blue-lighter);color:var(--blue);}
+  .btn.ghost{background:#F3F4F6;color:var(--gray-text);}
+  .btn.full{width:100%;}
+  .btn.danger-ghost{background:#FEF2F2;color:#B91C1C;}
+  .link-btn{background:none;border:none;color:var(--blue);font-size:12px;font-weight:700;padding:6px 0;font-family:inherit;}
+
+  /* ---------- 진도표 화면 ---------- */
+  .pad-screen{padding:18px 20px 16px;display:flex;flex-direction:column;gap:14px;}
+  .row-flex{display:flex;justify-content:space-between;align-items:center;gap:10px;}
+  select.term-select{font-size:12.5px;color:var(--ink);background:#fff;border:1px solid var(--gray-border);border-radius:8px;padding:8px 10px;}
+  .class-card{background:#fff;border:1px solid var(--gray-border);border-radius:12px;padding:13px 15px;margin-bottom:8px;}
+  .class-card .ct{display:flex;justify-content:space-between;align-items:center;}
+  .bar-track{width:100%;height:7px;background:#E5E7EB;border-radius:4px;overflow:hidden;margin-top:8px;}
+  .bar-fill{height:100%;border-radius:4px;}
+  .tl-entry{display:flex;gap:10px;padding:9px 0;border-left:3px solid var(--gray-border);padding-left:12px;}
+  .tl-entry.now{border-left:3px solid var(--blue);}
+  .tl-entry .tld{font-size:12px;color:var(--gray-faint);width:78px;flex-shrink:0;}
+  .tl-entry.now .tld{color:var(--blue);font-weight:700;}
+  .tl-entry .tlc{font-size:12.5px;color:var(--ink);}
+
+  /* ---------- 학생기록 화면 ---------- */
+  .search-box{width:100%;box-sizing:border-box;font-size:13px;padding:9px 12px;border:1px solid var(--gray-border);border-radius:8px;background:#fff;}
+  .stu-row{display:flex;align-items:center;gap:8px;padding:9px 10px;border-radius:8px;font-size:13px;background:#fff;border:1px solid var(--gray-border);margin-bottom:6px;}
+  .stu-row.sel{background:var(--blue-lighter);border-left:3px solid var(--blue);font-weight:700;}
+  .stat-tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;}
+  .stat-tile{background:#fff;border:1px solid var(--gray-border);border-radius:10px;padding:10px 12px;}
+  .stat-tile .stn{font-size:10.5px;color:var(--gray-faint);font-weight:700;}
+  .stat-tile .stv{font-size:18px;font-weight:700;margin-top:2px;}
+  .rec-item{padding:9px 0;border-bottom:1px solid #F1F1EF;display:flex;gap:9px;align-items:flex-start;}
+  .rec-item .rdate{font-size:11px;color:var(--gray-faint);width:44px;flex-shrink:0;margin-top:2px;}
+  .tag-badge{font-size:10.5px;font-weight:700;padding:3px 7px;border-radius:6px;white-space:nowrap;}
+  .tag-badge.발표{color:var(--blue);background:var(--blue-light);}
+  .tag-badge.태도{color:var(--orange-dark);background:var(--orange-light);}
+  .tag-badge.특이사항{color:var(--purple);background:var(--purple-light);}
+
+  /* ---------- 설정 화면 ---------- */
+  .settings-section{background:#fff;border:1px solid var(--gray-border);border-radius:12px;padding:16px 18px;margin-bottom:14px;}
+  .settings-section .sst{font-size:13.5px;font-weight:700;margin-bottom:10px;}
+  .tt-grid{display:grid;grid-template-columns:44px repeat(5,1fr);gap:3px;}
+  .tt-cell{display:flex;align-items:center;justify-content:center;font-size:11.5px;border-radius:6px;padding:8px 2px;background:#F9FAFB;color:var(--gray-faint);}
+  .tt-cell.assigned{background:var(--blue-lighter);color:var(--blue);font-weight:700;border:none;}
+  button.tt-cell{border:none;font-family:inherit;}
+  .cal-row-item{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid #F1F1EF;font-size:12.5px;}
+  .cal-row-item:last-child{border-bottom:none;}
+  .iconbtn{border:none;background:none;font-size:13px;color:var(--gray-faint);width:26px;height:26px;border-radius:6px;font-family:inherit;}
+  .field{margin-bottom:10px;}
+  .field label{font-size:11.5px;color:var(--gray-text);font-weight:600;display:block;margin-bottom:4px;}
+  .field input, .field select, .field textarea{width:100%;box-sizing:border-box;font-size:13px;padding:9px 10px;border:1px solid var(--gray-border);border-radius:8px;background:#fff;}
+  .field textarea{resize:vertical;min-height:56px;}
+  .upload-drop{border:1.5px dashed #C7CDD6;border-radius:12px;padding:20px;display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center;background:#fff;}
+
+  /* ---------- 모달 ---------- */
+  #modalOverlay{position:fixed;inset:0;background:rgba(0,0,0,.4);display:none;align-items:flex-end;justify-content:center;z-index:150;}
+  #modalOverlay.open{display:flex;}
+  #modalBody{background:#fff;width:100%;max-width:520px;border-radius:16px 16px 0 0;padding:20px 20px calc(20px + env(safe-area-inset-bottom));max-height:88vh;overflow-y:auto;}
+  .modal-title{font-size:15px;font-weight:700;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;}
+  .modal-title button{border:none;background:none;font-size:18px;color:var(--gray-faint);}
+
+  /* ---------- 토스트 ---------- */
+  #toastContainer{position:fixed;left:0;right:0;bottom:76px;display:flex;flex-direction:column;align-items:center;gap:6px;z-index:300;pointer-events:none;}
+  .toast{padding:9px 16px;border-radius:20px;font-size:12.5px;font-weight:600;color:#fff;box-shadow:0 4px 14px rgba(0,0,0,.15);}
+  .toast.ok{background:#111827;}
+  .toast.error{background:#B91C1C;}
+
+  .empty-hint{font-size:12px;color:var(--gray-faint);text-align:center;padding:20px 0;}
+</style>
+</head>
+<body>
+
+<!-- ================= 잠금 화면 ================= -->
+<div id="pinGate">
+  <div class="pin-box">
+    <div id="pinTitle" style="font-size:15px;font-weight:700;">잠금 해제</div>
+    <div style="font-size:11.5px;color:var(--gray-faint);margin-top:4px;">학생 개인정보가 담긴 앱이에요. 숫자 4자리를 입력해주세요.</div>
+    <input id="pinInput" type="password" inputmode="numeric" maxlength="4" placeholder="••••">
+    <div id="pinConfirmRow" style="display:none;">
+      <input id="pinConfirmInput" type="password" inputmode="numeric" maxlength="4" placeholder="다시 입력">
+    </div>
+    <button onclick="submitPin()">확인</button>
+  </div>
+</div>
+
+<!-- ================= 앱 본체 ================= -->
+<div id="app">
+
+  <!-- ---------- 캘린더 ---------- -->
+  <div class="screen active" id="screen-calendar">
+    <div class="cal-header">
+      <div class="cal-nav">
+        <button onclick="changeMonth(-1)">‹</button>
+        <div class="month-label" id="monthLabel">2026년 9월</div>
+        <button onclick="changeMonth(1)">›</button>
+      </div>
+      <div class="quick-banner" id="quickBanner">
+        <div>
+          <div class="qb-sub" id="qbSub">지금</div>
+          <div class="qb-main" id="qbMain">불러오는 중...</div>
+        </div>
+        <button onclick="goQuickRecord()">바로 기록</button>
+      </div>
+      <div class="weekday-row"><div>일</div><div>월</div><div>화</div><div>수</div><div>목</div><div>금</div><div>토</div></div>
+    </div>
+    <div class="day-grid-wrap"><div class="day-grid" id="dayGrid"></div></div>
+  </div>
+
+  <!-- ---------- 날짜상세 ---------- -->
+  <div class="screen" id="screen-daydetail">
+    <div class="subheader">
+      <button class="back-btn" onclick="showScreen('calendar')">‹</button>
+      <div class="title" id="ddTitle">날짜</div>
+    </div>
+    <div class="scroll-area"><div class="period-list" id="ddBody"></div></div>
+  </div>
+
+  <!-- ---------- 진도표 ---------- -->
+  <div class="screen" id="screen-progress">
+    <div class="scroll-area"><div class="pad-screen" id="progressBody"></div></div>
+  </div>
+
+  <!-- ---------- 학생기록 ---------- -->
+  <div class="screen" id="screen-students">
+    <div class="scroll-area"><div class="pad-screen" id="studentsBody"></div></div>
+  </div>
+
+  <!-- ---------- 설정 ---------- -->
+  <div class="screen" id="screen-settings">
+    <div class="scroll-area"><div class="pad-screen" id="settingsBody"></div></div>
+  </div>
+
+  <!-- ---------- 하단 탭바 ---------- -->
+  <div id="tabbar">
+    <button class="tabbtn active" data-tab="calendar" onclick="showScreen('calendar')">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>
+      캘린더
+    </button>
+    <button class="tabbtn" data-tab="progress" onclick="showScreen('progress')">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V9M12 19V5M20 19v-6"/></svg>
+      진도표
+    </button>
+    <button class="tabbtn" data-tab="students" onclick="showScreen('students')">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>
+      학생기록
+    </button>
+    <button class="tabbtn" data-tab="settings" onclick="showScreen('settings')">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7 7 0 0 0-2-1.2L14 3h-4l-.5 2.6a7 7 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6A7 7 0 0 0 5 12a7 7 0 0 0 .1 1.2l-2 1.6 2 3.4 2.4-1a7 7 0 0 0 2 1.2L10 21h4l.5-2.6a7 7 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.067-.397.1-.797.1-1.2z"/></svg>
+      설정
+    </button>
+  </div>
+</div>
+
+<!-- ================= 모달 ================= -->
+<div id="modalOverlay" onclick="if(event.target===this) closeModal()">
+  <div id="modalBody"></div>
+</div>
+
+<div id="toastContainer"></div>
+
+<script>
+/* =========================================================================
+   데이터 구조 (Firebase Realtime Database)
+   /config/currentTerm            : "2026-2"
+   /config/terms/{termId}         : { targetSessions:number }
+   /config/periodTimes            : { "1":"09:00-09:50", ... }
+   /timetable/{termId}/{요일}/{교시}      : "2-1"
+   /academicCalendar/{termId}/{id}        : {start,end,type,memo}
+   /periodOverrides/{termId}/{dateKey}/{교시} : {type:'event'|'other', memo, countSession}
+   /students/{termId}/{studentId}         : {class, number, name}
+   /progress/{termId}/{반이름}/{entryId}   : {seq,date,period,material,startPoint,endPoint,unit,note,createdAt}
+   /studentRecords/{termId}/{recordId}    : {studentId,studentName,class,date,tag,note,createdAt}
+   /personalEvents/{termId}/{dateKey}/{id} : {time,text}
+   ========================================================================= */
+
+// ⚠️ 아래 주소를 본인의 Firebase Realtime Database 주소로 바꿔주세요.
+// (Firebase 콘솔 > Realtime Database 에서 확인할 수 있어요. 칼각매치 만들 때 쓰신 방식과 동일해요.)
+const FIREBASE_DB_URL = "https://class-calendar-85548-default-rtdb.asia-southeast1.firebasedatabase.app";
+
+const WEEKDAY_KR = ['일','월','화','수','목','금','토'];
+const WEEKDAY_EN = ['sun','mon','tue','wed','thu','fri','sat'];
+const DAY_LABELS_5 = ['mon','tue','wed','thu','fri'];
+const DAY_LABELS_5_KR = ['월','화','수','목','금'];
+const DEFAULT_PERIOD_TIMES = {1:"09:00-09:50",2:"10:00-10:50",3:"11:00-11:50",4:"12:00-12:50",5:"14:00-14:50",6:"15:00-15:50",7:"16:00-16:50"};
+const TAG_LIST = ['발표','태도','특이사항'];
+
+let STATE = {
+  termId: null,
+  targetSessions: 0,
+  periodTimes: {},
+  timetable: {},
+  academicCalendar: {},
+  periodOverrides: {},
+  students: {},
+  progress: {},
+  studentRecords: {},
+  personalEvents: {},
+  currentMonthDate: new Date(),
+  selectedDateKey: null,
+  selectedStudentId: null,
+  studentSearch: ''
+};
+
+/* ---------------------- 날짜 유틸 ---------------------- */
+function pad(n){ return n.toString().padStart(2,'0'); }
+function dateKey(d){ return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; }
+function parseDateKey(k){ const [y,m,d]=k.split('-').map(Number); return new Date(y,m-1,d); }
+function fmtShort(k){ const d=parseDateKey(k); return `${d.getMonth()+1}/${d.getDate()}`; }
+function todayKey(){ return dateKey(new Date()); }
+function defaultTermId(){
+  const now=new Date(); const y=now.getFullYear(); const m=now.getMonth()+1;
+  return (m>=3 && m<=8) ? `${y}-1` : (m<3 ? `${y-1}-2` : `${y}-2`);
+}
+
+/* ---------------------- Firebase REST 헬퍼 ---------------------- */
+function dbPath(p){ return `${FIREBASE_DB_URL}/${p}.json`; }
+async function dbGet(p){
+  try{
+    const res = await fetch(dbPath(p));
+    if(!res.ok) throw new Error(res.status);
+    return await res.json();
+  }catch(e){
+    toast('불러오기 실패 · 인터넷 연결을 확인해주세요','error');
+    return null;
+  }
+}
+async function dbSet(p,data){
+  try{
+    const res = await fetch(dbPath(p),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+    if(!res.ok) throw new Error(res.status);
+    toast('저장됨','ok');
+    return await res.json();
+  }catch(e){ toast('저장 실패 · 다시 시도해주세요','error'); throw e; }
+}
+async function dbPush(p,data){
+  try{
+    const res = await fetch(dbPath(p),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+    if(!res.ok) throw new Error(res.status);
+    toast('저장됨','ok');
+    return await res.json();
+  }catch(e){ toast('저장 실패 · 다시 시도해주세요','error'); throw e; }
+}
+async function dbRemove(p){
+  try{
+    const res = await fetch(dbPath(p),{method:'DELETE'});
+    if(!res.ok) throw new Error(res.status);
+    toast('삭제됨','ok');
+  }catch(e){ toast('삭제 실패 · 다시 시도해주세요','error'); throw e; }
+}
+
+function toast(msg,type){
+  const el=document.createElement('div');
+  el.className='toast '+(type||'ok');
+  el.textContent=msg;
+  document.getElementById('toastContainer').appendChild(el);
+  setTimeout(()=>el.remove(),2200);
+}
+
+/* ---------------------- 잠금 화면 ---------------------- */
+function checkPinGate(){
+  const savedPin = localStorage.getItem('appPin');
+  const gate = document.getElementById('pinGate');
+  if(!savedPin){
+    document.getElementById('pinTitle').textContent='앱 잠금 설정 (숫자 4자리)';
+    document.getElementById('pinConfirmRow').style.display='block';
+  } else {
+    document.getElementById('pinTitle').textContent='잠금 해제';
+    document.getElementById('pinConfirmRow').style.display='none';
+  }
+  gate.style.display='flex';
+}
+function submitPin(){
+  const savedPin = localStorage.getItem('appPin');
+  const val = document.getElementById('pinInput').value.trim();
+  if(!/^\d{4}$/.test(val)){ alert('숫자 4자리로 입력해주세요'); return; }
+  if(!savedPin){
+    const confirmVal = document.getElementById('pinConfirmInput').value.trim();
+    if(val!==confirmVal){ alert('입력한 두 번호가 서로 달라요'); return; }
+    localStorage.setItem('appPin', val);
+    unlockApp();
+  } else {
+    if(val===savedPin) unlockApp();
+    else alert('번호가 틀렸어요');
+  }
+}
+function resetPin(){
+  if(confirm('잠금 번호를 초기화할까요? 다음에 열 때 새 번호를 설정하게 돼요.')){
+    localStorage.removeItem('appPin');
+    toast('잠금 번호가 초기화됐어요','ok');
+  }
+}
+function unlockApp(){
+  document.getElementById('pinGate').style.display='none';
+  document.getElementById('app').style.display='flex';
+  bootApp();
+}
+
+/* ---------------------- 데이터 로드 ---------------------- */
+async function loadAllData(){
+  const cfg = await dbGet('config') || {};
+  STATE.termId = cfg.currentTerm || defaultTermId();
+  const termCfg = (cfg.terms && cfg.terms[STATE.termId]) || {};
+  STATE.targetSessions = termCfg.targetSessions || 0;
+  STATE.periodTimes = cfg.periodTimes || DEFAULT_PERIOD_TIMES;
+
+  const t = STATE.termId;
+  STATE.timetable = await dbGet(`timetable/${t}`) || {};
+  STATE.academicCalendar = await dbGet(`academicCalendar/${t}`) || {};
+  STATE.periodOverrides = await dbGet(`periodOverrides/${t}`) || {};
+  STATE.students = await dbGet(`students/${t}`) || {};
+  STATE.progress = await dbGet(`progress/${t}`) || {};
+  STATE.studentRecords = await dbGet(`studentRecords/${t}`) || {};
+  STATE.personalEvents = await dbGet(`personalEvents/${t}`) || {};
+}
+
+async function bootApp(){
+  await loadAllData();
+  renderCalendar();
+  renderQuickBanner();
+  setInterval(renderQuickBanner, 60000);
+}
+
+/* ---------------------- 화면 전환 ---------------------- */
+function showScreen(name){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  document.getElementById('screen-'+name).classList.add('active');
+  const tabbar=document.getElementById('tabbar');
+  if(name==='daydetail'){ tabbar.classList.add('hidden'); }
+  else{
+    tabbar.classList.remove('hidden');
+    document.querySelectorAll('.tabbtn').forEach(b=>b.classList.toggle('active', b.dataset.tab===name));
+  }
+  if(name==='progress') renderProgressScreen();
+  if(name==='students') renderStudentsScreen();
+  if(name==='settings') renderSettingsScreen();
+}
+
+/* ======================================================================
+   캘린더 화면
+   ====================================================================== */
+function changeMonth(delta){
+  const d = STATE.currentMonthDate;
+  STATE.currentMonthDate = new Date(d.getFullYear(), d.getMonth()+delta, 1);
+  renderCalendar();
+}
+
+function getPeriodsForDate(d){
+  const dk = dateKey(d);
+  const acEntry = Object.values(STATE.academicCalendar).find(e=> dk>=e.start && dk<=e.end);
+  const dayIdx = d.getDay();
+  const dayKey = WEEKDAY_EN[dayIdx];
+  const periodsForDay = STATE.timetable[dayKey] || {};
+  const periods = Object.keys(periodsForDay).filter(p=>periodsForDay[p]).sort((a,b)=>Number(a)-Number(b));
+  return periods.map(p=>{
+    const cls = periodsForDay[p];
+    let entry = {period:Number(p), cls};
+    if(acEntry){
+      entry.status='holiday'; entry.holidayType=acEntry.type; entry.holidayMemo=acEntry.memo;
+      return entry;
+    }
+    const ov = (STATE.periodOverrides[dk]||{})[p];
+    if(ov){
+      entry.status = ov.type; entry.overrideMemo = ov.memo; entry.countSession = !!ov.countSession;
+      return entry;
+    }
+    const rec = findProgressEntry(cls, dk, Number(p));
+    entry.status = rec ? 'recorded' : 'unrecorded';
+    entry.progressEntry = rec;
+    return entry;
+  });
+}
+
+function findProgressEntry(cls, dk, period){
+  const list = STATE.progress[cls] || {};
+  for(const id in list){ if(list[id].date===dk && list[id].period===period) return {...list[id], id}; }
+  return null;
+}
+
+function renderCalendar(){
+  const d = STATE.currentMonthDate;
+  document.getElementById('monthLabel').textContent = `${d.getFullYear()}년 ${d.getMonth()+1}월`;
+  const first = new Date(d.getFullYear(), d.getMonth(), 1);
+  const startWeekday = first.getDay();
+  const daysInMonth = new Date(d.getFullYear(), d.getMonth()+1, 0).getDate();
+  const totalCells = Math.ceil((startWeekday+daysInMonth)/7)*7;
+
+  let html='';
+  for(let i=0;i<totalCells;i++){
+    const dayNum = i - startWeekday + 1;
+    if(dayNum<1 || dayNum>daysInMonth){ html+=`<div class="day-cell other-month"></div>`; continue; }
+    const cellDate = new Date(d.getFullYear(), d.getMonth(), dayNum);
+    const dk = dateKey(cellDate);
+    const isToday = dk===todayKey();
+    const periods = getPeriodsForDate(cellDate);
+    let dots='';
+    if(periods.length){
+      const hasUnrecorded = periods.some(p=>p.status==='unrecorded');
+      const allHoliday = periods.every(p=>p.status==='holiday');
+      if(allHoliday){ dots = `<div class="dots"><span class="dot gray"></span></div>`; }
+      else { dots = `<div class="dots"><span class="dot ${hasUnrecorded?'orange':'blue'}"></span></div>`; }
+    }
+    html += `<button class="day-cell ${isToday?'today':''}" onclick="openDayDetail('${dk}')">
+      <div class="dnum">${dayNum}</div>${dots}
+    </button>`;
+  }
+  document.getElementById('dayGrid').innerHTML = html;
+}
+
+function getNowPeriod(){
+  const now = new Date();
+  const hhmm = now.getHours()*60+now.getMinutes();
+  for(const p in STATE.periodTimes){
+    const [s,e] = STATE.periodTimes[p].split('-');
+    const [sh,sm] = s.split(':').map(Number); const [eh,em]=e.split(':').map(Number);
+    const start=sh*60+sm, end=eh*60+em;
+    if(hhmm>=start && hhmm<=end) return Number(p);
+  }
+  return null;
+}
+
+function renderQuickBanner(){
+  const nowPeriod = getNowPeriod();
+  const sub = document.getElementById('qbSub');
+  const main = document.getElementById('qbMain');
+  if(!nowPeriod){ sub.textContent='지금'; main.textContent='진행 중인 수업 없음'; return; }
+  const now = new Date();
+  const dayKey = WEEKDAY_EN[now.getDay()];
+  const cls = (STATE.timetable[dayKey]||{})[nowPeriod];
+  if(!cls){ sub.textContent='지금 · '+nowPeriod+'교시'; main.textContent='배정된 수업 없음'; return; }
+  sub.textContent = `지금 · ${nowPeriod}교시 진행 중`;
+  main.textContent = `${cls} 수학`;
+}
+function goQuickRecord(){
+  openDayDetail(todayKey());
+}
+
+/* ======================================================================
+   날짜상세 화면
+   ====================================================================== */
+function openDayDetail(dk){
+  STATE.selectedDateKey = dk;
+  const d = parseDateKey(dk);
+  document.getElementById('ddTitle').textContent = `${d.getMonth()+1}월 ${d.getDate()}일 (${WEEKDAY_KR[d.getDay()]})`;
+  renderDayDetail();
+  showScreen('daydetail');
+}
+
+function renderDayDetail(){
+  const dk = STATE.selectedDateKey;
+  const d = parseDateKey(dk);
+  const periods = getPeriodsForDate(d);
+  let html = `<div class="section-label">오늘의 수업</div>`;
+
+  if(!periods.length){
+    html += `<div class="empty-hint">이 날은 시간표상 수업이 없어요.</div>`;
+  }
+
+  periods.forEach(p=>{
+    if(p.status==='holiday'){
+      html += `<div class="card">
+        <div class="card-top"><div class="cname">${p.period}교시 · ${p.cls}</div><div class="badge gray">${p.holidayType||'휴업일'}</div></div>
+        <div class="sub">${p.holidayMemo||''} (진도 차시 미포함)</div>
+      </div>`;
+    } else if(p.status==='event'){
+      html += `<div class="card">
+        <div class="card-top"><div class="cname">${p.period}교시 · ${p.cls}</div><div class="badge gray">행사</div></div>
+        <div class="sub">${p.overrideMemo||''} (진도 차시 미포함)</div>
+        <button class="link-btn" onclick="clearOverride('${p.period}')">원래대로 되돌리기</button>
+      </div>`;
+    } else if(p.status==='other'){
+      html += `<div class="card">
+        <div class="card-top"><div class="cname">${p.period}교시 · ${p.cls}</div><div class="badge gray">기타 활동</div></div>
+        <div class="sub">${p.overrideMemo||''} ${p.countSession?'(진도 차시 포함)':'(진도 차시 미포함)'}</div>
+        <div class="card-actions">
+          <button class="btn secondary" onclick="openStudentRecordModal('${p.cls}')">학생 기록</button>
+          <button class="btn ghost" onclick="clearOverride('${p.period}')">되돌리기</button>
+        </div>
+      </div>`;
+    } else if(p.status==='recorded'){
+      const e=p.progressEntry;
+      html += `<div class="card">
+        <div class="card-top"><div class="cname">${p.period}교시 · ${e.cls||p.cls}</div><div class="badge blue">기록완료</div></div>
+        <div class="sub">${e.seq}차시 · ${e.material?e.material+' · ':''}${e.endPoint}</div>
+        <div class="card-actions">
+          <button class="btn ghost" onclick="openProgressModal('${p.cls}',${p.period},true)">기록 수정</button>
+          <button class="btn secondary" onclick="openStudentRecordModal('${p.cls}')">학생 기록</button>
+        </div>
+      </div>`;
+    } else {
+      html += `<div class="card warn">
+        <div class="card-top"><div class="cname">${p.period}교시 · ${p.cls}</div><div class="badge orange">미기록</div></div>
+        <div class="card-actions">
+          <button class="btn primary" onclick="openProgressModal('${p.cls}',${p.period},false)">진도 기록</button>
+          <button class="btn secondary" onclick="openStudentRecordModal('${p.cls}')">학생 기록</button>
+        </div>
+        <button class="link-btn" onclick="openOverrideModal('${p.period}','${p.cls}')">행사·기타 활동으로 표시</button>
+      </div>`;
+    }
+  });
+
+  html += `<div class="section-label">개인 일정</div>`;
+  const events = STATE.personalEvents[dk] || {};
+  const ids = Object.keys(events);
+  if(!ids.length) html += `<div class="empty-hint">등록된 개인 일정이 없어요.</div>`;
+  ids.sort((a,b)=> (events[a].time||'').localeCompare(events[b].time||'')).forEach(id=>{
+    const ev=events[id];
+    html += `<div class="card" style="display:flex;gap:10px;align-items:center;">
+      <div class="badge" style="color:${'#7C3AED'};background:${'#F3E8FF'};">${ev.time||''}</div>
+      <div style="flex:1;font-size:12.5px;">${ev.text}</div>
+      <button class="iconbtn" onclick="deletePersonalEvent('${id}')">✕</button>
+    </div>`;
+  });
+  html += `<button class="btn ghost full" onclick="openPersonalEventModal()">+ 개인 일정 추가</button>`;
+
+  document.getElementById('ddBody').innerHTML = html;
+}
+
+async function clearOverride(period){
+  const dk = STATE.selectedDateKey;
+  await dbRemove(`periodOverrides/${STATE.termId}/${dk}/${period}`);
+  if(STATE.periodOverrides[dk]) delete STATE.periodOverrides[dk][period];
+  renderDayDetail();
+}
+
+async function deletePersonalEvent(id){
+  const dk = STATE.selectedDateKey;
+  await dbRemove(`personalEvents/${STATE.termId}/${dk}/${id}`);
+  if(STATE.personalEvents[dk]) delete STATE.personalEvents[dk][id];
+  renderDayDetail();
+}
+
+/* ---------------------- 모달: 진도 입력 ---------------------- */
+function openProgressModal(cls, period, isEdit){
+  const dk = STATE.selectedDateKey;
+  const existing = isEdit ? findProgressEntry(cls, dk, period) : null;
+  const entries = Object.entries(STATE.progress[cls]||{}).map(([id,v])=>({...v,id})).sort((a,b)=>a.seq-b.seq);
+  const last = existing ? entries.filter(e=>e.seq<existing.seq).slice(-1)[0] : entries.slice(-1)[0];
+  const nextSeq = existing ? existing.seq : entries.length+1;
+  const unitOptions = ['내심','외심','기타'];
+
+  document.getElementById('modalBody').innerHTML = `
+    <div class="modal-title"><span>${cls} · ${nextSeq}차시 진도 기록</span><button onclick="closeModal()">✕</button></div>
+    ${last ? `<div class="field"><label>지난 차시 끝난 지점 (자동 표시)</label>
+      <div style="font-size:12.5px;color:#6B7280;background:#F9FAFB;border:1px solid #E5E7EB;border-radius:8px;padding:9px 10px;">${last.endPoint||'-'}</div></div>` : ''}
+    <div class="field"><label>사용 자료</label>
+      <select id="pf_material">
+        <option value="교과서" ${existing&&existing.material==='교과서'?'selected':''}>교과서</option>
+        <option value="학습지" ${existing&&existing.material==='학습지'?'selected':''}>학습지</option>
+        <option value="프린트" ${existing&&existing.material==='프린트'?'selected':''}>프린트</option>
+      </select></div>
+    <div class="field"><label>단원</label>
+      <select id="pf_unit">${unitOptions.map(u=>`<option ${existing&&existing.unit===u?'selected':''}>${u}</option>`).join('')}</select></div>
+    <div class="field"><label>어디까지 나갔는지</label>
+      <input id="pf_end" placeholder="예: p.181 문제2까지" value="${existing?existing.endPoint||'':''}"></div>
+    <div class="field"><label>비고 (선택)</label>
+      <textarea id="pf_note">${existing?existing.note||'':''}</textarea></div>
+    <button class="btn primary full" onclick="saveProgress('${cls}',${period},${nextSeq},${last?`'${(last.endPoint||'').replace(/'/g,"\\'")}'`:'null'}${existing?`,'${existing.id}'`:''})">저장</button>
+  `;
+  document.getElementById('modalOverlay').classList.add('open');
+}
+
+async function saveProgress(cls, period, seq, startPoint, existingId){
+  const material = document.getElementById('pf_material').value;
+  const unit = document.getElementById('pf_unit').value;
+  const endPoint = document.getElementById('pf_end').value.trim();
+  const note = document.getElementById('pf_note').value.trim();
+  if(!endPoint){ alert('어디까지 나갔는지 입력해주세요'); return; }
+  const data = {seq, date:STATE.selectedDateKey, period, cls, material, startPoint:startPoint||'', endPoint, unit, note, createdAt:Date.now()};
+  if(existingId){
+    await dbSet(`progress/${STATE.termId}/${cls}/${existingId}`, data);
+    STATE.progress[cls][existingId]=data;
+  } else {
+    const res = await dbPush(`progress/${STATE.termId}/${cls}`, data);
+    STATE.progress[cls] = STATE.progress[cls]||{};
+    STATE.progress[cls][res.name]=data;
+  }
+  closeModal();
+  renderDayDetail();
+  renderCalendar();
+}
+
+/* ---------------------- 모달: 행사/기타활동 지정 ---------------------- */
+function openOverrideModal(period, cls){
+  document.getElementById('modalBody').innerHTML = `
+    <div class="modal-title"><span>${period}교시 · ${cls} 표시 변경</span><button onclick="closeModal()">✕</button></div>
+    <div class="field"><label>이 시간을</label>
+      <select id="ov_type">
+        <option value="event">행사 (진도 차시 미포함)</option>
+        <option value="other">기타 활동</option>
+      </select></div>
+    <div class="field"><label>메모</label><input id="ov_memo" placeholder="예: 교내 체육대회"></div>
+    <div class="field" id="ov_countWrap" style="display:none;">
+      <label><input type="checkbox" id="ov_count" style="width:auto;display:inline-block;margin-right:6px;">이 활동도 진도 차시에 포함시키기</label>
+    </div>
+    <button class="btn primary full" onclick="saveOverride(${period})">저장</button>
+  `;
+  document.getElementById('ov_type').addEventListener('change', e=>{
+    document.getElementById('ov_countWrap').style.display = e.target.value==='other' ? 'block':'none';
+  });
+  document.getElementById('modalOverlay').classList.add('open');
+}
+async function saveOverride(period){
+  const dk = STATE.selectedDateKey;
+  const type = document.getElementById('ov_type').value;
+  const memo = document.getElementById('ov_memo').value.trim();
+  const count = document.getElementById('ov_count') ? document.getElementById('ov_count').checked : false;
+  const data = {type, memo, countSession:count};
+  await dbSet(`periodOverrides/${STATE.termId}/${dk}/${period}`, data);
+  STATE.periodOverrides[dk] = STATE.periodOverrides[dk]||{};
+  STATE.periodOverrides[dk][period]=data;
+  closeModal(); renderDayDetail(); renderCalendar();
+}
+
+/* ---------------------- 모달: 개인 일정 ---------------------- */
+function openPersonalEventModal(){
+  document.getElementById('modalBody').innerHTML = `
+    <div class="modal-title"><span>개인 일정 추가</span><button onclick="closeModal()">✕</button></div>
+    <div class="field"><label>시각</label><input id="pe_time" type="time" value="15:00"></div>
+    <div class="field"><label>내용</label><input id="pe_text" placeholder="예: 학부모 상담"></div>
+    <button class="btn primary full" onclick="savePersonalEvent()">저장</button>
+  `;
+  document.getElementById('modalOverlay').classList.add('open');
+}
+async function savePersonalEvent(){
+  const time = document.getElementById('pe_time').value;
+  const text = document.getElementById('pe_text').value.trim();
+  if(!text){ alert('내용을 입력해주세요'); return; }
+  const dk = STATE.selectedDateKey;
+  const res = await dbPush(`personalEvents/${STATE.termId}/${dk}`, {time,text});
+  STATE.personalEvents[dk]=STATE.personalEvents[dk]||{};
+  STATE.personalEvents[dk][res.name]={time,text};
+  closeModal(); renderDayDetail();
+}
+
+/* ---------------------- 모달: 학생 기록 추가 ---------------------- */
+function openStudentRecordModal(cls){
+  const studentsInClass = Object.entries(STATE.students).filter(([id,s])=>s.class===cls).sort((a,b)=>a[1].number-b[1].number);
+  document.getElementById('modalBody').innerHTML = `
+    <div class="modal-title"><span>${cls} 학생 기록</span><button onclick="closeModal()">✕</button></div>
+    <div class="field"><label>학생</label>
+      <select id="sr_student">${studentsInClass.map(([id,s])=>`<option value="${id}">${s.number}번 ${s.name}</option>`).join('') || '<option value="">등록된 학생이 없어요</option>'}</select></div>
+    <div class="field"><label>구분</label>
+      <select id="sr_tag">${TAG_LIST.map(t=>`<option>${t}</option>`).join('')}</select></div>
+    <div class="field"><label>내용</label><textarea id="sr_note" placeholder="예: 문제 풀이 발표함, 논리 전개 정확함"></textarea></div>
+    <button class="btn primary full" onclick="saveStudentRecord('${cls}')">저장</button>
+  `;
+  document.getElementById('modalOverlay').classList.add('open');
+}
+async function saveStudentRecord(cls){
+  const studentId = document.getElementById('sr_student').value;
+  if(!studentId){ alert('학생 명단을 먼저 등록해주세요 (설정 탭)'); return; }
+  const tag = document.getElementById('sr_tag').value;
+  const note = document.getElementById('sr_note').value.trim();
+  if(!note){ alert('내용을 입력해주세요'); return; }
+  const studentName = STATE.students[studentId].name;
+  const data = {studentId, studentName, class:cls, date:STATE.selectedDateKey, tag, note, createdAt:Date.now()};
+  const res = await dbPush(`studentRecords/${STATE.termId}`, data);
+  STATE.studentRecords[res.name]=data;
+  closeModal();
+  toast('학생 기록이 저장됐어요','ok');
+}
+
+function closeModal(){ document.getElementById('modalOverlay').classList.remove('open'); }
+
+/* ======================================================================
+   진도표 화면
+   ====================================================================== */
+function renderProgressScreen(){
+  const classes = [...new Set(Object.values(STATE.timetable).flatMap(day=>Object.values(day)).filter(Boolean))].sort();
+  let html = `<div class="row-flex">
+    <div style="font-size:18px;font-weight:700;">진도표</div>
+    <div style="font-size:12px;color:#9CA3AF;">${STATE.termId}</div>
+  </div>`;
+
+  if(!classes.length){ html += `<div class="empty-hint">설정 탭에서 시간표를 먼저 등록해주세요.</div>`; }
+
+  classes.forEach(cls=>{
+    const entries = Object.entries(STATE.progress[cls]||{}).map(([id,v])=>({...v,id})).sort((a,b)=>a.seq-b.seq);
+    const last = entries.slice(-1)[0];
+    const pct = STATE.targetSessions ? Math.min(100, Math.round((entries.length/STATE.targetSessions)*100)) : null;
+    const delayed = pct!==null && pct < estimateExpectedPct();
+    html += `<div class="class-card">
+      <div class="ct">
+        <div style="font-weight:700;font-size:13.5px;">${cls}</div>
+        <div style="font-size:12px;font-weight:700;color:${pct===null?'#9CA3AF':(delayed?'#C2410C':'#2563EB')};">${entries.length}차시${pct!==null?` · ${pct}%`:''}</div>
+      </div>
+      <div style="font-size:12px;color:#6B7280;margin-top:4px;">${last? (last.endPoint||''):'아직 기록된 진도가 없어요'}</div>
+      ${pct!==null?`<div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${delayed?'#EA580C':'#2563EB'};"></div></div>`:''}
+      <button class="link-btn" onclick="showClassHistory('${cls}')">히스토리 보기</button>
+    </div>`;
+  });
+
+  html += `<button class="btn ghost full" onclick="exportProgressCSV()" style="margin-top:6px;">진도 기록 CSV로 내보내기</button>`;
+  html += `<div id="classHistoryArea"></div>`;
+  document.getElementById('progressBody').innerHTML = html;
+}
+
+function estimateExpectedPct(){
+  // 아주 단순한 기준: 학기 시작 대비 오늘까지 경과 비율 (설정에 목표가 없으면 사용 안 함)
+  return 50;
+}
+
+function showClassHistory(cls){
+  const entries = Object.entries(STATE.progress[cls]||{}).map(([id,v])=>({...v,id})).sort((a,b)=>a.seq-b.seq);
+  let html = `<div class="settings-section" style="margin-top:10px;">
+    <div class="sst">${cls} · 진도 히스토리</div>`;
+  if(!entries.length){ html += `<div class="empty-hint">기록이 없어요.</div>`; }
+  entries.forEach((e,i)=>{
+    html += `<div class="tl-entry ${i===entries.length-1?'now':''}">
+      <div class="tld">${e.seq}차시 · ${fmtShort(e.date)}</div>
+      <div class="tlc">${e.material?`[${e.material}] `:''}${e.startPoint?`${e.startPoint} → `:''}${e.endPoint}${e.note?` · ${e.note}`:''}</div>
+    </div>`;
+  });
+  html += `</div>`;
+  document.getElementById('classHistoryArea').innerHTML = html;
+}
+
+function exportProgressCSV(){
+  let rows = [['반','차시','날짜','자료','시작지점','끝난지점','단원','비고']];
+  Object.entries(STATE.progress).forEach(([cls,entries])=>{
+    Object.values(entries).sort((a,b)=>a.seq-b.seq).forEach(e=>{
+      rows.push([cls,e.seq,e.date,e.material||'',e.startPoint||'',e.endPoint||'',e.unit||'',e.note||'']);
+    });
+  });
+  downloadCSV(rows, `진도표_${STATE.termId}.csv`);
+}
+
+/* ======================================================================
+   학생기록 화면
+   ====================================================================== */
+function renderStudentsScreen(){
+  const q = STATE.studentSearch.trim();
+  const classGroups = {};
+  Object.entries(STATE.students).forEach(([id,s])=>{
+    if(q && !s.name.includes(q)) return;
+    classGroups[s.class]=classGroups[s.class]||[];
+    classGroups[s.class].push({id,...s});
+  });
+
+  let listHtml='';
+  Object.keys(classGroups).sort().forEach(cls=>{
+    listHtml += `<div style="font-size:11px;color:#9CA3AF;font-weight:700;padding:8px 2px 4px;">${cls}</div>`;
+    classGroups[cls].sort((a,b)=>a.number-b.number).forEach(s=>{
+      listHtml += `<div class="stu-row ${STATE.selectedStudentId===s.id?'sel':''}" onclick="selectStudent('${s.id}')">${s.number}번 ${s.name}</div>`;
+    });
+  });
+  if(!Object.keys(classGroups).length) listHtml = `<div class="empty-hint">등록된 학생이 없어요. 설정 탭에서 명단을 업로드해주세요.</div>`;
+
+  let detailHtml = `<div class="empty-hint">왼쪽에서 학생을 선택해주세요.</div>`;
+  if(STATE.selectedStudentId && STATE.students[STATE.selectedStudentId]){
+    detailHtml = renderStudentDetail(STATE.selectedStudentId);
+  }
+
+  document.getElementById('studentsBody').innerHTML = `
+    <div style="font-size:18px;font-weight:700;">학생 기록</div>
+    <input class="search-box" placeholder="학생 이름 검색" value="${q}" oninput="STATE.studentSearch=this.value;renderStudentsScreen();">
+    <div>${listHtml}</div>
+    <div id="studentDetailArea">${detailHtml}</div>
+  `;
+}
+
+function selectStudent(id){ STATE.selectedStudentId=id; renderStudentsScreen(); }
+
+function renderStudentDetail(id){
+  const s = STATE.students[id];
+  const records = Object.entries(STATE.studentRecords).map(([rid,r])=>({...r,rid})).filter(r=>r.studentId===id).sort((a,b)=>b.date.localeCompare(a.date));
+  const counts = {}; TAG_LIST.forEach(t=>counts[t]=0);
+  records.forEach(r=>{ if(counts[r.tag]!==undefined) counts[r.tag]++; });
+
+  let recHtml = records.map(r=>`<div class="rec-item">
+    <div class="rdate">${fmtShort(r.date)}</div>
+    <div class="tag-badge ${r.tag}">${r.tag}</div>
+    <div style="flex:1;font-size:13px;">${r.note}</div>
+  </div>`).join('') || `<div class="empty-hint">기록이 없어요.</div>`;
+
+  return `
+    <div style="margin-top:16px;">
+      <div class="row-flex">
+        <div><div style="font-size:17px;font-weight:700;">${s.name}</div><div style="font-size:12px;color:#6B7280;margin-top:2px;">${s.class} · ${s.number}번</div></div>
+        <button class="btn ghost" onclick="exportStudentCSV('${id}')">기록 내보내기</button>
+      </div>
+      <div class="stat-tiles" style="margin-top:12px;">
+        ${TAG_LIST.map(t=>`<div class="stat-tile"><div class="stn">${t}</div><div class="stv">${counts[t]}회</div></div>`).join('')}
+      </div>
+      <div class="settings-section" style="margin-top:12px;">
+        <div class="sst">전체 기록</div>
+        ${recHtml}
+      </div>
+    </div>
+  `;
+}
+
+function exportStudentCSV(id){
+  const s = STATE.students[id];
+  const records = Object.values(STATE.studentRecords).filter(r=>r.studentId===id).sort((a,b)=>a.date.localeCompare(b.date));
+  let rows=[['날짜','구분','내용']];
+  records.forEach(r=>rows.push([r.date,r.tag,r.note]));
+  downloadCSV(rows, `${s.name}_기록.csv`);
+}
+
+function downloadCSV(rows, filename){
+  const csv = rows.map(r=>r.map(v=>`"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const blob = new Blob(['\uFEFF'+csv], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href=url; a.download=filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  URL.revokeObjectURL(url);
+}
+
+/* ======================================================================
+   설정 화면
+   ====================================================================== */
+function renderSettingsScreen(){
+  document.getElementById('settingsBody').innerHTML = `
+    <div style="font-size:18px;font-weight:700;">설정</div>
+    <div style="font-size:12px;color:#9CA3AF;margin:2px 0 4px;">시간표·학사일정·학생 명단은 학기 초에 한 번 등록해두면 캘린더에 자동 반영돼요</div>
+
+    <div class="settings-section">
+      <div class="sst">학기</div>
+      <div class="field"><label>학기 (예: 2026-2)</label><input id="st_term" value="${STATE.termId}"></div>
+      <div class="field"><label>이번 학기 목표 총 차시 수 (진도율 계산용, 선택)</label><input id="st_target" type="number" value="${STATE.targetSessions||''}"></div>
+      <button class="btn primary" onclick="saveTermSettings()">학기 설정 저장</button>
+    </div>
+
+    <div class="settings-section">
+      <div class="sst">시간표</div>
+      ${renderTimetableGrid()}
+      <div style="font-size:11px;color:#9CA3AF;margin-top:8px;">칸을 누르면 배정할 반을 바꿀 수 있어요</div>
+    </div>
+
+    <div class="settings-section">
+      <div class="sst">교시별 시간 (지금 몇 교시인지 계산용)</div>
+      ${Object.keys(STATE.periodTimes).sort((a,b)=>a-b).map(p=>`
+        <div class="cal-row-item"><div style="width:50px;">${p}교시</div>
+        <input style="flex:1;" id="pt_${p}" value="${STATE.periodTimes[p]}" placeholder="09:00-09:50"></div>`).join('')}
+      <button class="btn ghost" style="margin-top:8px;" onclick="savePeriodTimes()">교시 시간 저장</button>
+    </div>
+
+    <div class="settings-section">
+      <div class="row-flex"><div class="sst" style="margin:0;">학사일정</div>
+      <button class="btn primary" style="flex:none;padding:8px 12px;" onclick="openAcademicModal()">+ 새 일정 추가</button></div>
+      ${renderAcademicList()}
+    </div>
+
+    <div class="settings-section">
+      <div class="row-flex"><div class="sst" style="margin:0;">학생 명단</div>
+      <span style="font-size:11.5px;color:#9CA3AF;">${Object.keys(STATE.students).length}명 등록됨</span></div>
+      <div class="upload-drop">
+        <div style="font-size:12.5px;font-weight:600;">엑셀(.xlsx) 또는 CSV 파일 업로드</div>
+        <input type="file" id="rosterFile" accept=".csv,.xlsx" onchange="handleRosterFile(event)">
+      </div>
+      <div id="rosterMatchArea"></div>
+    </div>
+
+    <div class="settings-section">
+      <div class="sst">보안</div>
+      <button class="btn danger-ghost full" onclick="resetPin()">잠금 번호 초기화</button>
+    </div>
+  `;
+}
+
+function renderTimetableGrid(){
+  let html = `<div class="tt-grid"><div class="tt-cell"></div>${DAY_LABELS_5_KR.map(d=>`<div class="tt-cell" style="background:none;color:#6B7280;font-weight:700;">${d}</div>`).join('')}`;
+  for(let p=1;p<=7;p++){
+    html += `<div class="tt-cell">${p}교시</div>`;
+    DAY_LABELS_5.forEach(day=>{
+      const cls = (STATE.timetable[day]||{})[p];
+      html += `<button class="tt-cell ${cls?'assigned':''}" onclick="editTimetableCell('${day}',${p})">${cls||'—'}</button>`;
+    });
+  }
+  html += `</div>`;
+  return html;
+}
+
+async function editTimetableCell(day,period){
+  const cur = (STATE.timetable[day]||{})[period] || '';
+  const val = prompt('배정할 반을 입력하세요 (예: 2-1, 비우면 삭제)', cur);
+  if(val===null) return;
+  STATE.timetable[day] = STATE.timetable[day]||{};
+  if(val.trim()===''){
+    delete STATE.timetable[day][period];
+    await dbRemove(`timetable/${STATE.termId}/${day}/${period}`);
+  } else {
+    STATE.timetable[day][period]=val.trim();
+    await dbSet(`timetable/${STATE.termId}/${day}/${period}`, val.trim());
+  }
+  renderSettingsScreen();
+  renderCalendar();
+}
+
+async function saveTermSettings(){
+  const newTerm = document.getElementById('st_term').value.trim();
+  const target = Number(document.getElementById('st_target').value)||0;
+  await dbSet('config/currentTerm', newTerm);
+  await dbSet(`config/terms/${newTerm}/targetSessions`, target);
+  await loadAllData();
+  renderSettingsScreen(); renderCalendar();
+  toast('학기 설정이 저장됐어요','ok');
+}
+
+async function savePeriodTimes(){
+  const times = {};
+  Object.keys(STATE.periodTimes).forEach(p=>{ times[p]=document.getElementById('pt_'+p).value.trim(); });
+  STATE.periodTimes = times;
+  await dbSet('config/periodTimes', times);
+  renderQuickBanner();
+}
+
+function renderAcademicList(){
+  const entries = Object.entries(STATE.academicCalendar);
+  if(!entries.length) return `<div class="empty-hint">등록된 학사일정이 없어요.</div>`;
+  return entries.sort((a,b)=>a[1].start.localeCompare(b[1].start)).map(([id,e])=>`
+    <div class="cal-row-item">
+      <div style="width:110px;">${fmtShort(e.start)}${e.end!==e.start?` ~ ${fmtShort(e.end)}`:''}</div>
+      <div class="badge ${e.type==='시험기간'?'orange':(e.type==='방학'?'':'gray')}" style="${e.type==='방학'?'color:#7C3AED;background:#F3E8FF;':''}">${e.type}</div>
+      <div style="flex:1;">${e.memo||''}</div>
+      <button class="iconbtn" onclick="deleteAcademic('${id}')">✕</button>
+    </div>`).join('');
+}
+
+function openAcademicModal(){
+  document.getElementById('modalBody').innerHTML = `
+    <div class="modal-title"><span>학사일정 추가</span><button onclick="closeModal()">✕</button></div>
+    <div class="field"><label>시작일</label><input id="ac_start" type="date"></div>
+    <div class="field"><label>종료일 (하루면 동일하게)</label><input id="ac_end" type="date"></div>
+    <div class="field"><label>구분</label><select id="ac_type"><option>공휴일</option><option>시험기간</option><option>방학</option></select></div>
+    <div class="field"><label>메모</label><input id="ac_memo" placeholder="예: 개천절"></div>
+    <button class="btn primary full" onclick="saveAcademic()">저장</button>
+  `;
+  document.getElementById('modalOverlay').classList.add('open');
+}
+async function saveAcademic(){
+  const start = document.getElementById('ac_start').value;
+  const end = document.getElementById('ac_end').value || start;
+  const type = document.getElementById('ac_type').value;
+  const memo = document.getElementById('ac_memo').value.trim();
+  if(!start){ alert('날짜를 입력해주세요'); return; }
+  const data = {start,end,type,memo};
+  const res = await dbPush(`academicCalendar/${STATE.termId}`, data);
+  STATE.academicCalendar[res.name]=data;
+  closeModal(); renderSettingsScreen(); renderCalendar();
+}
+async function deleteAcademic(id){
+  await dbRemove(`academicCalendar/${STATE.termId}/${id}`);
+  delete STATE.academicCalendar[id];
+  renderSettingsScreen(); renderCalendar();
+}
+
+/* ---------------------- 학생 명단 업로드 ---------------------- */
+let ROSTER_RAW_ROWS = [];
+function handleRosterFile(event){
+  const file = event.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e){
+    let rows;
+    if(file.name.endsWith('.csv')){
+      rows = e.target.result.split(/\r?\n/).filter(r=>r.trim()!=='').map(r=>r.split(','));
+    } else {
+      const wb = XLSX.read(e.target.result, {type:'binary'});
+      rows = [];
+      wb.SheetNames.forEach(name=>{
+        const sheet = XLSX.utils.sheet_to_json(wb.Sheets[name], {header:1});
+        sheet.forEach(r=>{ if(r.length) rows.push(r.map(v=>String(v??'').trim())); });
+      });
+    }
+    ROSTER_RAW_ROWS = rows;
+    showRosterMatch(rows);
+  };
+  if(file.name.endsWith('.csv')) reader.readAsText(file, 'utf-8');
+  else reader.readAsBinaryString(file);
+}
+
+function showRosterMatch(rows){
+  if(!rows.length){ document.getElementById('rosterMatchArea').innerHTML='<div class="empty-hint">읽을 내용이 없어요.</div>'; return; }
+  const header = rows[0];
+  const colOptions = header.map((h,i)=>`<option value="${i}">${h||('열'+(i+1))}</option>`).join('');
+  document.getElementById('rosterMatchArea').innerHTML = `
+    <div style="margin-top:10px;font-size:12px;color:#6B7280;">${rows.length-1}행 감지됨. 어떤 열이 무엇인지 확인해주세요.</div>
+    <div class="field"><label>반</label><select id="rc_class">${colOptions}</select></div>
+    <div class="field"><label>번호</label><select id="rc_number">${colOptions}</select></div>
+    <div class="field"><label>이름</label><select id="rc_name">${colOptions}</select></div>
+    <button class="btn primary full" onclick="applyRoster()">명단 적용하기</button>
+  `;
+}
+
+async function applyRoster(){
+  const ci = Number(document.getElementById('rc_class').value);
+  const ni = Number(document.getElementById('rc_number').value);
+  const nmi = Number(document.getElementById('rc_name').value);
+  const rows = ROSTER_RAW_ROWS.slice(1);
+  const updates = {};
+  rows.forEach(r=>{
+    if(!r[nmi]) return;
+    const id = 's_'+Date.now()+'_'+Math.random().toString(36).slice(2,7);
+    updates[id] = {class:r[ci]||'', number:Number(r[ni])||0, name:r[nmi]};
+  });
+  await dbSet(`students/${STATE.termId}`, {...STATE.students, ...updates});
+  STATE.students = {...STATE.students, ...updates};
+  document.getElementById('rosterMatchArea').innerHTML = `<div class="empty-hint">${Object.keys(updates).length}명이 등록됐어요.</div>`;
+  renderSettingsScreen();
+}
+
+/* ---------------------- 시작 ---------------------- */
+window.addEventListener('DOMContentLoaded', checkPinGate);
+</script>
+</body>
+</html>
