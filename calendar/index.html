@@ -164,10 +164,10 @@
 <div id="pinGate">
   <div class="pin-box">
     <div id="pinTitle" style="font-size:15px;font-weight:700;">잠금 해제</div>
-    <div style="font-size:11.5px;color:var(--gray-faint);margin-top:4px;">학생 개인정보가 담긴 앱이에요. 숫자 4자리를 입력해주세요.</div>
-    <input id="pinInput" type="password" inputmode="numeric" maxlength="4" placeholder="••••">
+    <div style="font-size:11.5px;color:var(--gray-faint);margin-top:4px;">학생 개인정보가 담긴 앱이에요. 숫자 6자리를 입력해주세요.</div>
+    <input id="pinInput" type="password" inputmode="numeric" maxlength="6" placeholder="••••••">
     <div id="pinConfirmRow" style="display:none;">
-      <input id="pinConfirmInput" type="password" inputmode="numeric" maxlength="4" placeholder="다시 입력">
+      <input id="pinConfirmInput" type="password" inputmode="numeric" maxlength="6" placeholder="다시 입력">
     </div>
     <button onclick="submitPin()">확인</button>
   </div>
@@ -265,7 +265,7 @@
 
 // ⚠️ 아래 주소를 본인의 Firebase Realtime Database 주소로 바꿔주세요.
 // (Firebase 콘솔 > Realtime Database 에서 확인할 수 있어요. 칼각매치 만들 때 쓰신 방식과 동일해요.)
-const FIREBASE_DB_URL = "https://class-calendar-85548-default-rtdb.asia-southeast1.firebasedatabase.app";
+const FIREBASE_DB_URL = "https://YOUR-PROJECT-default-rtdb.asia-southeast1.firebasedatabase.app";
 
 const WEEKDAY_KR = ['일','월','화','수','목','금','토'];
 const WEEKDAY_EN = ['sun','mon','tue','wed','thu','fri','sat'];
@@ -351,7 +351,7 @@ function checkPinGate(){
   const savedPin = localStorage.getItem('appPin');
   const gate = document.getElementById('pinGate');
   if(!savedPin){
-    document.getElementById('pinTitle').textContent='앱 잠금 설정 (숫자 4자리)';
+    document.getElementById('pinTitle').textContent='앱 잠금 설정 (숫자 6자리)';
     document.getElementById('pinConfirmRow').style.display='block';
   } else {
     document.getElementById('pinTitle').textContent='잠금 해제';
@@ -362,7 +362,7 @@ function checkPinGate(){
 function submitPin(){
   const savedPin = localStorage.getItem('appPin');
   const val = document.getElementById('pinInput').value.trim();
-  if(!/^\d{4}$/.test(val)){ alert('숫자 4자리로 입력해주세요'); return; }
+  if(!/^\d{6}$/.test(val)){ alert('숫자 6자리로 입력해주세요'); return; }
   if(!savedPin){
     const confirmVal = document.getElementById('pinConfirmInput').value.trim();
     if(val!==confirmVal){ alert('입력한 두 번호가 서로 달라요'); return; }
