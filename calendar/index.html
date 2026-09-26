@@ -298,6 +298,7 @@ let STATE = {
   timetable: {},
   academicCalendar: {},
   periodOverrides: {},
+  dayOverrides: {},
   students: {},
   progress: {},
   studentRecords: {},
@@ -414,6 +415,7 @@ async function loadAllData(){
   STATE.timetable = await dbGet(`timetable/${t}`) || {};
   STATE.academicCalendar = await dbGet(`academicCalendar/${t}`) || {};
   STATE.periodOverrides = await dbGet(`periodOverrides/${t}`) || {};
+  STATE.dayOverrides = await dbGet(`dayOverrides/${t}`) || {};
   STATE.students = await dbGet(`students/${t}`) || {};
   STATE.progress = await dbGet(`progress/${t}`) || {};
   STATE.studentRecords = await dbGet(`studentRecords/${t}`) || {};
@@ -454,8 +456,9 @@ function changeMonth(delta){
 function getPeriodsForDate(d){
   const dk = dateKey(d);
   const acEntry = Object.values(STATE.academicCalendar).find(e=> dk>=e.start && dk<=e.end);
+  const dayOv = STATE.dayOverrides[dk];
   const dayIdx = d.getDay();
-  const dayKey = WEEKDAY_EN[dayIdx];
+  const dayKey = dayOv ? dayOv.weekday : WEEKDAY_EN[dayIdx];
   const periodsForDay = STATE.timetable[dayKey] || {};
   const periods = Object.keys(periodsForDay).filter(p=>periodsForDay[p]).sort((a,b)=>Number(a)-Number(b));
   return periods.map(p=>{
@@ -467,6 +470,13 @@ function getPeriodsForDate(d){
     }
     const ov = (STATE.periodOverrides[dk]||{})[p];
     if(ov){
+      if(ov.type==='swap'){
+        entry.cls = ov.cls;
+        entry.originalCls = cls;
+        entry.status = 'swap';
+        entry.progressEntry = findProgressEntry(ov.cls, dk, Number(p));
+        return entry;
+      }
       entry.status = ov.type; entry.overrideMemo = ov.memo; entry.countSession = !!ov.countSession;
       return entry;
     }
@@ -475,6 +485,14 @@ function getPeriodsForDate(d){
     entry.progressEntry = rec;
     return entry;
   });
+}
+
+function getAllClassNames(){
+  const set = new Set();
+  Object.values(STATE.timetable).forEach(day=>{
+    Object.values(day||{}).forEach(cls=>{ if(cls) set.add(cls); });
+  });
+  return Array.from(set).sort();
 }
 
 function findProgressEntry(cls, dk, period){
@@ -508,7 +526,7 @@ function renderCalendar(){
     } else {
       const periods = getPeriodsForDate(cellDate);
       if(periods.length){
-        const hasUnrecorded = periods.some(p=>p.status==='unrecorded');
+        const hasUnrecorded = periods.some(p=>p.status==='unrecorded' || (p.status==='swap' && !p.progressEntry));
         dots = `<div class="dots"><span class="dot ${hasUnrecorded?'orange':'blue'}"></span></div>`;
       }
     }
@@ -537,8 +555,15 @@ function renderQuickBanner(){
   const main = document.getElementById('qbMain');
   if(!nowPeriod){ sub.textContent='지금'; main.textContent='진행 중인 수업 없음'; return; }
   const now = new Date();
-  const dayKey = WEEKDAY_EN[now.getDay()];
-  const cls = (STATE.timetable[dayKey]||{})[nowPeriod];
+  const dk = dateKey(now);
+  const acEntry = Object.values(STATE.academicCalendar).find(e=> dk>=e.start && dk<=e.end);
+  if(acEntry){ sub.textContent='지금 · '+nowPeriod+'교시'; main.textContent=acEntry.type||'휴업일'; return; }
+  const dayOv = STATE.dayOverrides[dk];
+  const dayKey = dayOv ? dayOv.weekday : WEEKDAY_EN[now.getDay()];
+  let cls = (STATE.timetable[dayKey]||{})[nowPeriod];
+  const ov = (STATE.periodOverrides[dk]||{})[nowPeriod];
+  if(ov && ov.type==='swap') cls = ov.cls;
+  else if(ov && (ov.type==='event'||ov.type==='other')){ sub.textContent='지금 · '+nowPeriod+'교시'; main.textContent = ov.type==='event'?'행사':'기타 활동'; return; }
   if(!cls){ sub.textContent='지금 · '+nowPeriod+'교시'; main.textContent='배정된 수업 없음'; return; }
   sub.textContent = `지금 · ${nowPeriod}교시 진행 중`;
   main.textContent = `${cls} 수학`;
@@ -563,60 +588,95 @@ function renderDayDetail(){
   const d = parseDateKey(dk);
   const periods = getPeriodsForDate(d);
   const acEntry = Object.values(STATE.academicCalendar).find(e=> dk>=e.start && dk<=e.end);
-  let html = `<div class="section-label">오늘의 수업</div>`;
+  const dayOv = STATE.dayOverrides[dk];
+  let html = `<div class="section-label" style="display:flex;justify-content:space-between;align-items:center;">
+    <span>오늘의 수업</span>
+    <button class="link-btn" style="margin:0;" onclick="openDayOverrideModal()">요일 전체 교체</button>
+  </div>`;
+  if(dayOv){
+    const idx = DAY_LABELS_5.indexOf(dayOv.weekday);
+    html += `<div class="card" style="background:#F9FAFB;">
+      <div class="sub" style="color:#6B7280;">오늘은 <b>${idx>=0?DAY_LABELS_5_KR[idx]:dayOv.weekday}요일</b> 시간표대로 운영해요.</div>
+      <button class="link-btn" onclick="clearDayOverride()">되돌리기</button>
+    </div>`;
+  }
 
-  if(acEntry && !periods.length){
-    // 시간표상 수업이 없는 날(주말 등)이라도 학사일정에 등록된 날이면 보여줘요
+  if(acEntry){
+    // 공휴일·시험기간·방학·행사 등 학사일정에 등록된 날은 교시별로 반복하지 않고 안내 카드 하나만 보여줘요
     html += `<div class="card">
       <div class="card-top"><div class="cname">${acEntry.type||'학사일정'}</div><div class="badge gray">${acEntry.type||'휴업일'}</div></div>
       <div class="sub">${acEntry.memo||''}</div>
     </div>`;
   } else if(!periods.length){
     html += `<div class="empty-hint">이 날은 시간표상 수업이 없어요.</div>`;
+  } else {
+    periods.forEach(p=>{
+      if(p.status==='event'){
+        html += `<div class="card">
+          <div class="card-top"><div class="cname">${p.period}교시 · ${p.cls}</div><div class="badge gray">행사</div></div>
+          <div class="sub">${p.overrideMemo||''} (진도 차시 미포함)</div>
+          <button class="link-btn" onclick="clearOverride('${p.period}')">원래대로 되돌리기</button>
+        </div>`;
+      } else if(p.status==='other'){
+        html += `<div class="card">
+          <div class="card-top"><div class="cname">${p.period}교시 · ${p.cls}</div><div class="badge gray">기타 활동</div></div>
+          <div class="sub">${p.overrideMemo||''} ${p.countSession?'(진도 차시 포함)':'(진도 차시 미포함)'}</div>
+          <div class="card-actions">
+            <button class="btn secondary" onclick="openStudentRecordModal('${p.cls}')">학생 기록</button>
+            <button class="btn ghost" onclick="clearOverride('${p.period}')">되돌리기</button>
+          </div>
+        </div>`;
+      } else if(p.status==='swap'){
+        const swapNote = p.originalCls && p.originalCls!==p.cls ? `<div class="sub" style="color:#9CA3AF;">원래 시간표: ${p.originalCls}</div>` : '';
+        if(p.progressEntry){
+          const e=p.progressEntry;
+          html += `<div class="card">
+            <div class="card-top"><div class="cname">${p.period}교시 · ${p.cls}</div><div class="badge blue">기록완료</div></div>
+            <div class="sub">${e.seq}차시 · ${e.material?e.material+' · ':''}${e.endPoint}</div>
+            ${swapNote}
+            <div class="card-actions">
+              <button class="btn ghost" onclick="openProgressModal('${p.cls}',${p.period},true)">기록 수정</button>
+              <button class="btn secondary" onclick="openStudentRecordModal('${p.cls}')">학생 기록</button>
+            </div>
+            <button class="link-btn" onclick="clearOverride('${p.period}')">시간표 교체 되돌리기</button>
+          </div>`;
+        } else {
+          html += `<div class="card warn">
+            <div class="card-top"><div class="cname">${p.period}교시 · ${p.cls}</div><div class="badge orange">미기록</div></div>
+            ${swapNote}
+            <div class="card-actions">
+              <button class="btn primary" onclick="openProgressModal('${p.cls}',${p.period},false)">진도 기록</button>
+              <button class="btn secondary" onclick="openStudentRecordModal('${p.cls}')">학생 기록</button>
+            </div>
+            <button class="link-btn" onclick="clearOverride('${p.period}')">시간표 교체 되돌리기</button>
+          </div>`;
+        }
+      } else if(p.status==='recorded'){
+        const e=p.progressEntry;
+        html += `<div class="card">
+          <div class="card-top"><div class="cname">${p.period}교시 · ${e.cls||p.cls}</div><div class="badge blue">기록완료</div></div>
+          <div class="sub">${e.seq}차시 · ${e.material?e.material+' · ':''}${e.endPoint}</div>
+          <div class="card-actions">
+            <button class="btn ghost" onclick="openProgressModal('${p.cls}',${p.period},true)">기록 수정</button>
+            <button class="btn secondary" onclick="openStudentRecordModal('${p.cls}')">학생 기록</button>
+          </div>
+          <button class="link-btn" onclick="openSwapModal('${p.period}','${p.cls}')">시간표 교체</button>
+        </div>`;
+      } else {
+        html += `<div class="card warn">
+          <div class="card-top"><div class="cname">${p.period}교시 · ${p.cls}</div><div class="badge orange">미기록</div></div>
+          <div class="card-actions">
+            <button class="btn primary" onclick="openProgressModal('${p.cls}',${p.period},false)">진도 기록</button>
+            <button class="btn secondary" onclick="openStudentRecordModal('${p.cls}')">학생 기록</button>
+          </div>
+          <div style="display:flex;gap:10px;">
+            <button class="link-btn" onclick="openOverrideModal('${p.period}','${p.cls}')">행사·기타 활동으로 표시</button>
+            <button class="link-btn" onclick="openSwapModal('${p.period}','${p.cls}')">시간표 교체</button>
+          </div>
+        </div>`;
+      }
+    });
   }
-
-  periods.forEach(p=>{
-    if(p.status==='holiday'){
-      html += `<div class="card">
-        <div class="card-top"><div class="cname">${p.period}교시 · ${p.cls}</div><div class="badge gray">${p.holidayType||'휴업일'}</div></div>
-        <div class="sub">${p.holidayMemo||''} (진도 차시 미포함)</div>
-      </div>`;
-    } else if(p.status==='event'){
-      html += `<div class="card">
-        <div class="card-top"><div class="cname">${p.period}교시 · ${p.cls}</div><div class="badge gray">행사</div></div>
-        <div class="sub">${p.overrideMemo||''} (진도 차시 미포함)</div>
-        <button class="link-btn" onclick="clearOverride('${p.period}')">원래대로 되돌리기</button>
-      </div>`;
-    } else if(p.status==='other'){
-      html += `<div class="card">
-        <div class="card-top"><div class="cname">${p.period}교시 · ${p.cls}</div><div class="badge gray">기타 활동</div></div>
-        <div class="sub">${p.overrideMemo||''} ${p.countSession?'(진도 차시 포함)':'(진도 차시 미포함)'}</div>
-        <div class="card-actions">
-          <button class="btn secondary" onclick="openStudentRecordModal('${p.cls}')">학생 기록</button>
-          <button class="btn ghost" onclick="clearOverride('${p.period}')">되돌리기</button>
-        </div>
-      </div>`;
-    } else if(p.status==='recorded'){
-      const e=p.progressEntry;
-      html += `<div class="card">
-        <div class="card-top"><div class="cname">${p.period}교시 · ${e.cls||p.cls}</div><div class="badge blue">기록완료</div></div>
-        <div class="sub">${e.seq}차시 · ${e.material?e.material+' · ':''}${e.endPoint}</div>
-        <div class="card-actions">
-          <button class="btn ghost" onclick="openProgressModal('${p.cls}',${p.period},true)">기록 수정</button>
-          <button class="btn secondary" onclick="openStudentRecordModal('${p.cls}')">학생 기록</button>
-        </div>
-      </div>`;
-    } else {
-      html += `<div class="card warn">
-        <div class="card-top"><div class="cname">${p.period}교시 · ${p.cls}</div><div class="badge orange">미기록</div></div>
-        <div class="card-actions">
-          <button class="btn primary" onclick="openProgressModal('${p.cls}',${p.period},false)">진도 기록</button>
-          <button class="btn secondary" onclick="openStudentRecordModal('${p.cls}')">학생 기록</button>
-        </div>
-        <button class="link-btn" onclick="openOverrideModal('${p.period}','${p.cls}')">행사·기타 활동으로 표시</button>
-      </div>`;
-    }
-  });
 
   html += `<div class="section-label">개인 일정</div>`;
   const events = STATE.personalEvents[dk] || {};
@@ -740,6 +800,68 @@ async function saveOverride(period){
   await dbSet(`periodOverrides/${STATE.termId}/${dk}/${period}`, data);
   STATE.periodOverrides[dk] = STATE.periodOverrides[dk]||{};
   STATE.periodOverrides[dk][period]=data;
+  closeModal(); renderDayDetail(); renderCalendar();
+}
+
+/* ---------------------- 모달: 교시 단위 시간표 교체 ---------------------- */
+function openSwapModal(period, cls){
+  const classes = getAllClassNames();
+  document.getElementById('modalBody').innerHTML = `
+    <div class="modal-title"><span>${period}교시 시간표 교체</span><button onclick="closeModal()">✕</button></div>
+    <div style="font-size:11.5px;color:#9CA3AF;margin-top:-4px;">원래 이 시간엔 ${cls} 수업이 있어요. 실제로 다른 반 수업을 하게 됐다면 바꿔주세요. (진도는 평소처럼 기록돼요)</div>
+    <div class="field"><label>실제로 수업할 반</label>
+      <select id="sw_cls">
+        ${classes.map(c=>`<option value="${c}" ${c===cls?'selected':''}>${c}</option>`).join('')}
+        <option value="__custom__">직접 입력</option>
+      </select></div>
+    <div class="field" id="sw_customWrap" style="display:none;"><label>반 이름 직접 입력</label><input id="sw_custom" placeholder="예: 2-1"></div>
+    <button class="btn primary full" onclick="saveSwap(${period})">저장</button>
+  `;
+  document.getElementById('sw_cls').addEventListener('change', e=>{
+    document.getElementById('sw_customWrap').style.display = e.target.value==='__custom__' ? 'block':'none';
+  });
+  document.getElementById('modalOverlay').classList.add('open');
+}
+async function saveSwap(period){
+  const dk = STATE.selectedDateKey;
+  const sel = document.getElementById('sw_cls').value;
+  const cls = sel==='__custom__' ? document.getElementById('sw_custom').value.trim() : sel;
+  if(!cls){ alert('반 이름을 입력해주세요'); return; }
+  const data = {type:'swap', cls};
+  await dbSet(`periodOverrides/${STATE.termId}/${dk}/${period}`, data);
+  STATE.periodOverrides[dk] = STATE.periodOverrides[dk]||{};
+  STATE.periodOverrides[dk][period]=data;
+  closeModal(); renderDayDetail(); renderCalendar();
+}
+
+/* ---------------------- 모달: 요일 전체 시간표 교체 ---------------------- */
+function openDayOverrideModal(){
+  const dk = STATE.selectedDateKey;
+  const current = STATE.dayOverrides[dk];
+  document.getElementById('modalBody').innerHTML = `
+    <div class="modal-title"><span>이 날 시간표 통째로 교체</span><button onclick="closeModal()">✕</button></div>
+    <div style="font-size:11.5px;color:#9CA3AF;margin-top:-4px;">예: 수요일 시간표를 금요일에 그대로 운영하는 경우에 써요. 개별 교시만 바뀌었다면 각 교시 카드의 '시간표 교체'를 이용해주세요.</div>
+    <div class="field"><label>오늘은 어느 요일 시간표대로 운영하나요?</label>
+      <select id="do_weekday">
+        ${DAY_LABELS_5.map((w,i)=>`<option value="${w}" ${current&&current.weekday===w?'selected':''}>${DAY_LABELS_5_KR[i]}요일 시간표</option>`).join('')}
+      </select></div>
+    <button class="btn primary full" onclick="saveDayOverride()">저장</button>
+    ${current ? `<button class="btn ghost full" onclick="clearDayOverride()">되돌리기 (원래 요일 시간표 사용)</button>` : ''}
+  `;
+  document.getElementById('modalOverlay').classList.add('open');
+}
+async function saveDayOverride(){
+  const dk = STATE.selectedDateKey;
+  const weekday = document.getElementById('do_weekday').value;
+  const data = {weekday};
+  await dbSet(`dayOverrides/${STATE.termId}/${dk}`, data);
+  STATE.dayOverrides[dk]=data;
+  closeModal(); renderDayDetail(); renderCalendar();
+}
+async function clearDayOverride(){
+  const dk = STATE.selectedDateKey;
+  await dbRemove(`dayOverrides/${STATE.termId}/${dk}`);
+  delete STATE.dayOverrides[dk];
   closeModal(); renderDayDetail(); renderCalendar();
 }
 
