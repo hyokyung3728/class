@@ -453,6 +453,11 @@ function changeMonth(delta){
   renderCalendar();
 }
 
+function isBlockingAcEntry(acEntry){
+  // 행사(진도포함)은 실제로 수업·진도 기록이 이뤄지는 날이라 일정에 의해 수업이 막히지 않아요
+  return !!acEntry && acEntry.type!=='행사(진도포함)';
+}
+
 function getPeriodsForDate(d){
   const dk = dateKey(d);
   const acEntry = Object.values(STATE.academicCalendar).find(e=> dk>=e.start && dk<=e.end);
@@ -464,10 +469,11 @@ function getPeriodsForDate(d){
   return periods.map(p=>{
     const cls = periodsForDay[p];
     let entry = {period:Number(p), cls};
-    if(acEntry){
+    if(isBlockingAcEntry(acEntry)){
       entry.status='holiday'; entry.holidayType=acEntry.type; entry.holidayMemo=acEntry.memo;
       return entry;
     }
+    if(acEntry) entry.eventNote = acEntry.memo; // 행사(진도포함): 정상 수업으로 취급하되 안내만 붙여줘요
     const ov = (STATE.periodOverrides[dk]||{})[p];
     if(ov){
       if(ov.type==='swap'){
@@ -519,11 +525,12 @@ function renderCalendar(){
     const acEntry = Object.values(STATE.academicCalendar).find(e=> dk>=e.start && dk<=e.end);
     let dots='';
     let holidayClass='';
-    if(acEntry){
-      // 학사일정(공휴일·시험기간·방학)에 등록된 날은 그 반에 수업이 있는지 여부와 상관없이 항상 표시돼요
+    if(isBlockingAcEntry(acEntry)){
+      // 공휴일·시험기간·방학·행사(진도미포함)은 그날 수업이 있는지 여부와 상관없이 항상 표시돼요
       holidayClass='holiday-cell';
       dots = `<div class="dots"><span class="dot gray"></span></div>`;
     } else {
+      // 학사일정이 없거나 행사(진도포함)인 날은 실제 수업처럼 기록완료/미기록으로 표시돼요
       const periods = getPeriodsForDate(cellDate);
       if(periods.length){
         const hasUnrecorded = periods.some(p=>p.status==='unrecorded' || (p.status==='swap' && !p.progressEntry));
@@ -557,7 +564,7 @@ function renderQuickBanner(){
   const now = new Date();
   const dk = dateKey(now);
   const acEntry = Object.values(STATE.academicCalendar).find(e=> dk>=e.start && dk<=e.end);
-  if(acEntry){ sub.textContent='지금 · '+nowPeriod+'교시'; main.textContent=acEntry.type||'휴업일'; return; }
+  if(isBlockingAcEntry(acEntry)){ sub.textContent='지금 · '+nowPeriod+'교시'; main.textContent=acEntry.type||'휴업일'; return; }
   const dayOv = STATE.dayOverrides[dk];
   const dayKey = dayOv ? dayOv.weekday : WEEKDAY_EN[now.getDay()];
   let cls = (STATE.timetable[dayKey]||{})[nowPeriod];
@@ -601,8 +608,8 @@ function renderDayDetail(){
     </div>`;
   }
 
-  if(acEntry){
-    // 공휴일·시험기간·방학·행사 등 학사일정에 등록된 날은 교시별로 반복하지 않고 안내 카드 하나만 보여줘요
+  if(isBlockingAcEntry(acEntry)){
+    // 공휴일·시험기간·방학·행사(진도미포함) 등 실제 수업이 없는 날은 교시별로 반복하지 않고 안내 카드 하나만 보여줘요
     html += `<div class="card">
       <div class="card-top"><div class="cname">${acEntry.type||'학사일정'}</div><div class="badge gray">${acEntry.type||'휴업일'}</div></div>
       <div class="sub">${acEntry.memo||''}</div>
@@ -610,6 +617,12 @@ function renderDayDetail(){
   } else if(!periods.length){
     html += `<div class="empty-hint">이 날은 시간표상 수업이 없어요.</div>`;
   } else {
+    if(acEntry){
+      // 행사(진도포함): 진도는 정상적으로 기록하되, 오늘 무슨 행사인지만 안내해줘요
+      html += `<div class="card" style="background:#F9FAFB;">
+        <div class="sub" style="color:#6B7280;">오늘은 <b>${acEntry.type}</b>인 날이에요: ${acEntry.memo||''} (수업·진도 기록은 평소처럼 해주세요)</div>
+      </div>`;
+    }
     periods.forEach(p=>{
       if(p.status==='event'){
         html += `<div class="card">
@@ -1229,7 +1242,7 @@ function renderAcademicList(){
   return entries.sort((a,b)=>a[1].start.localeCompare(b[1].start)).map(([id,e])=>`
     <div class="cal-row-item">
       <div style="width:110px;">${fmtShort(e.start)}${e.end!==e.start?` ~ ${fmtShort(e.end)}`:''}</div>
-      <div class="badge ${e.type==='시험기간'?'orange':(e.type==='방학'||e.type==='행사'?'':'gray')}" style="${e.type==='방학'?'color:#7C3AED;background:#F3E8FF;':(e.type==='행사'?'color:#2563EB;background:#EFF6FF;':'')}">${e.type}</div>
+      <div class="badge ${e.type==='시험기간'?'orange':(e.type==='방학'||e.type==='행사(진도포함)'?'':'gray')}" style="${e.type==='방학'?'color:#7C3AED;background:#F3E8FF;':(e.type==='행사(진도포함)'?'color:#16A34A;background:#DCFCE7;':'')}">${e.type}</div>
       <div style="flex:1;">${e.memo||''}</div>
       <button class="iconbtn" onclick="deleteAcademic('${id}')">✕</button>
     </div>`).join('');
@@ -1240,7 +1253,8 @@ function openAcademicModal(){
     <div class="modal-title"><span>학사일정 추가</span><button onclick="closeModal()">✕</button></div>
     <div class="field"><label>시작일</label><input id="ac_start" type="date"></div>
     <div class="field"><label>종료일 (하루면 동일하게)</label><input id="ac_end" type="date"></div>
-    <div class="field"><label>구분</label><select id="ac_type"><option>공휴일</option><option>시험기간</option><option>방학</option><option>행사</option><option>기타</option></select></div>
+    <div class="field"><label>구분</label><select id="ac_type"><option>공휴일</option><option>시험기간</option><option>방학</option><option>행사(진도포함)</option><option>행사(진도미포함)</option></select></div>
+    <div style="font-size:11px;color:#9CA3AF;margin-top:-6px;">행사(진도포함)은 실제 수업·진도 기록이 이뤄지는 날이라 달력에도 평소 수업처럼 표시돼요. 행사(진도미포함)은 공휴일처럼 수업이 없는 날로 표시돼요.</div>
     <div class="field"><label>메모</label><input id="ac_memo" placeholder="예: 개천절"></div>
     <button class="btn primary full" onclick="saveAcademic()">저장</button>
   `;
