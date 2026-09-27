@@ -474,6 +474,35 @@ async function loadAllData(){
   STATE.progress = await dbGet(`progress/${t}`) || {};
   STATE.studentRecords = await dbGet(`studentRecords/${t}`) || {};
   STATE.personalEvents = await dbGet(`personalEvents/${t}`) || {};
+
+  await removePeriodZeroEverywhere();
+}
+
+// 0교시는 쓰지 않으므로, 교시 시간 설정·기본 시간표·교시별 오버라이드 등 앱 전체에서
+// 0교시와 관련된 데이터를 자동으로 정리해요. 해당 데이터가 없으면 아무 일도 하지 않아요.
+async function removePeriodZeroEverywhere(){
+  const t = STATE.termId;
+
+  if(STATE.periodTimes && Object.prototype.hasOwnProperty.call(STATE.periodTimes, '0')){
+    const times = {...STATE.periodTimes};
+    delete times['0'];
+    STATE.periodTimes = times;
+    await dbSet('config/periodTimes', times);
+  }
+
+  for(const day in STATE.timetable){
+    if(STATE.timetable[day] && Object.prototype.hasOwnProperty.call(STATE.timetable[day], '0')){
+      delete STATE.timetable[day]['0'];
+      await dbRemove(`timetable/${t}/${day}/0`);
+    }
+  }
+
+  for(const dk in STATE.periodOverrides){
+    if(STATE.periodOverrides[dk] && Object.prototype.hasOwnProperty.call(STATE.periodOverrides[dk], '0')){
+      delete STATE.periodOverrides[dk]['0'];
+      await dbRemove(`periodOverrides/${t}/${dk}/0`);
+    }
+  }
 }
 
 async function bootApp(){
@@ -1425,7 +1454,8 @@ function renderSettingsScreen(){
       <div class="sst">교시별 시간 (지금 몇 교시인지 계산용)</div>
       ${Object.keys(STATE.periodTimes).sort((a,b)=>a-b).map(p=>`
         <div class="cal-row-item"><div style="width:50px;">${p}교시</div>
-        <input style="flex:1;" id="pt_${p}" value="${STATE.periodTimes[p]}" placeholder="09:00-09:50"></div>`).join('')}
+        <input style="flex:1;" id="pt_${p}" value="${STATE.periodTimes[p]}" placeholder="09:00-09:50">
+        <button class="iconbtn" onclick="deletePeriodTime('${p}')">✕</button></div>`).join('')}
       <button class="btn ghost" style="margin-top:8px;" onclick="savePeriodTimes()">교시 시간 저장</button>
     </div>
 
@@ -1499,6 +1529,16 @@ async function savePeriodTimes(){
   Object.keys(STATE.periodTimes).forEach(p=>{ times[p]=document.getElementById('pt_'+p).value.trim(); });
   STATE.periodTimes = times;
   await dbSet('config/periodTimes', times);
+  renderQuickBanner();
+}
+
+async function deletePeriodTime(p){
+  if(!confirm(`${p}교시 시간 설정을 삭제할까요?`)) return;
+  const times = {...STATE.periodTimes};
+  delete times[p];
+  STATE.periodTimes = times;
+  await dbSet('config/periodTimes', times);
+  renderSettingsScreen();
   renderQuickBanner();
 }
 
