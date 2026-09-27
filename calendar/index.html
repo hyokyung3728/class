@@ -37,7 +37,7 @@
     --ink:#1F2937; --white:#FFFFFF;
   }
   *{box-sizing:border-box;}
-  html,body{margin:0;padding:0;height:100%;height:100dvh;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:var(--ink);background:var(--gray-bg);}
+  html,body{margin:0;padding:0;height:100%;height:100dvh;height:calc(var(--app-vh, 1vh) * 100);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:var(--ink);background:var(--gray-bg);}
   button,input,select,textarea{font-family:inherit;}
   button{cursor:pointer;}
   a{color:inherit;}
@@ -49,7 +49,7 @@
   .pin-box button{width:100%;margin-top:14px;background:var(--blue);color:#fff;border:none;border-radius:10px;padding:12px;font-size:14px;font-weight:700;}
 
   /* ---------- 전체 앱 셸 ---------- */
-  #app{display:none;flex-direction:column;height:100%;height:100dvh;max-width:520px;width:100%;margin:0 auto;background:var(--gray-bg);position:relative;padding-top:env(safe-area-inset-top);box-sizing:border-box;}
+  #app{display:none;flex-direction:column;height:100%;height:100dvh;height:calc(var(--app-vh, 1vh) * 100);max-width:520px;width:100%;margin:0 auto;background:var(--gray-bg);position:relative;padding-top:env(safe-area-inset-top);box-sizing:border-box;}
   .screen{display:none;flex-direction:column;height:100%;min-height:0;}
   .screen.active{display:flex;}
   .scroll-area{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;}
@@ -276,6 +276,22 @@
 <div id="toastContainer"></div>
 
 <script>
+/* ---------------------- 아이폰 홈 화면 추가(standalone) 화면 높이 보정 ----------------------
+   iOS에서 홈 화면에 추가한 앱을 실행하면 아주 잠깐 실제 화면 높이와 다른 값으로
+   계산됐다가, 화면을 스와이프해야 바로잡히는 경우가 있어요. window.innerHeight를
+   기준으로 --app-vh 값을 직접 계산해서 넣어주면, 스와이프 없이도 처음부터
+   하단 탭바가 화면 맨 아래에 딱 맞게 표시돼요. */
+function setAppVH(){
+  document.documentElement.style.setProperty('--app-vh', (window.innerHeight*0.01)+'px');
+}
+setAppVH();
+window.addEventListener('resize', setAppVH);
+window.addEventListener('orientationchange', ()=>setTimeout(setAppVH,150));
+window.addEventListener('pageshow', setAppVH);
+if(window.visualViewport){ window.visualViewport.addEventListener('resize', setAppVH); }
+setTimeout(setAppVH,300);
+setTimeout(setAppVH,800);
+
 /* =========================================================================
    데이터 구조 (Firebase Realtime Database)
    /config/currentTerm            : "2026-2"
@@ -385,6 +401,12 @@ function checkPinGate(){
   }
   gate.style.display='flex';
   setTimeout(()=>{ const el=document.getElementById('pinInput'); if(el) el.focus(); }, 0);
+  // 아이폰 홈 화면 추가(standalone) 앱에서는 사용자가 화면을 한 번 터치하기 전에는
+  // 자동 focus()로 키보드가 뜨지 않아요. 화면 아무 곳이나 처음 터치하면 바로
+  // 입력창에 커서가 들어가도록 한 번만 동작하는 리스너를 걸어둬요.
+  const focusOnce = ()=>{ const el=document.getElementById('pinInput'); if(el) el.focus(); };
+  gate.addEventListener('touchstart', focusOnce, { once:true, passive:true });
+  gate.addEventListener('click', focusOnce, { once:true });
 }
 function submitPin(){
   const savedPin = localStorage.getItem('appPin');
@@ -450,6 +472,34 @@ function showScreen(name){
   if(name==='students') renderStudentsScreen();
   if(name==='settings') renderSettingsScreen();
 }
+
+/* ---------------------- 날짜상세 화면: 왼쪽 가장자리에서 오른쪽으로 스와이프하면 뒤로가기 ----------------------
+   iOS의 시스템 제스처(화면 왼쪽 끝에서 오른쪽으로 스와이프)는 사파리 자체 기능이라
+   홈 화면에 추가한 앱(standalone)에는 적용되지 않고, 우리 앱 화면 전환에도 그대로
+   쓸 수 없어서 비슷하게 동작하는 제스처를 직접 만들어줬어요. */
+(function setupSwipeBack(){
+  const el = document.getElementById('screen-daydetail');
+  if(!el) return;
+  const EDGE = 24;       // 화면 왼쪽 가장자리로 인정하는 폭(px)
+  const THRESHOLD = 70;  // 뒤로가기로 인정할 최소 이동 거리(px)
+  let startX=null, startY=null, tracking=false;
+  el.addEventListener('touchstart', e=>{
+    const t = e.touches[0];
+    if(t.clientX <= EDGE){ startX=t.clientX; startY=t.clientY; tracking=true; }
+    else { tracking=false; }
+  }, { passive:true });
+  el.addEventListener('touchmove', e=>{
+    if(!tracking) return;
+    const t = e.touches[0];
+    const dx = t.clientX - startX;
+    const dy = Math.abs(t.clientY - startY);
+    if(dx > THRESHOLD && dy < 60){
+      tracking=false;
+      showScreen('calendar');
+    }
+  }, { passive:true });
+  el.addEventListener('touchend', ()=>{ tracking=false; });
+})();
 
 /* ======================================================================
    캘린더 화면
