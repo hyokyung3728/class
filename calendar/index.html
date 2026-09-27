@@ -651,7 +651,10 @@ function renderDayDetail(){
               <button class="btn ghost" onclick="openProgressModal('${p.cls}',${p.period},true)">기록 수정</button>
               <button class="btn secondary" onclick="openStudentRecordModal('${p.cls}')">학생 기록</button>
             </div>
-            <button class="link-btn" onclick="clearOverride('${p.period}')">시간표 교체 되돌리기</button>
+            <div style="display:flex;gap:10px;">
+              <button class="link-btn" onclick="clearOverride('${p.period}')">시간표 교체 되돌리기</button>
+              <button class="link-btn" style="color:#DC2626;" onclick="deleteProgress('${p.cls}','${e.id}')">기록 삭제</button>
+            </div>
           </div>`;
         } else {
           html += `<div class="card warn">
@@ -673,7 +676,10 @@ function renderDayDetail(){
             <button class="btn ghost" onclick="openProgressModal('${p.cls}',${p.period},true)">기록 수정</button>
             <button class="btn secondary" onclick="openStudentRecordModal('${p.cls}')">학생 기록</button>
           </div>
-          <button class="link-btn" onclick="openSwapModal('${p.period}','${p.cls}')">시간표 교체</button>
+          <div style="display:flex;gap:10px;">
+            <button class="link-btn" onclick="openSwapModal('${p.period}','${p.cls}')">시간표 교체</button>
+            <button class="link-btn" style="color:#DC2626;" onclick="deleteProgress('${p.cls}','${e.id}')">기록 삭제</button>
+          </div>
         </div>`;
       } else {
         html += `<div class="card warn">
@@ -779,6 +785,14 @@ async function saveProgress(cls, period, seq, startPoint, existingId){
     STATE.progress[cls][res.name]=data;
   }
   closeModal();
+  renderDayDetail();
+  renderCalendar();
+}
+
+async function deleteProgress(cls, id){
+  if(!confirm('이 진도 기록을 정말 삭제할까요? 삭제하면 되돌릴 수 없어요.')) return;
+  await dbRemove(`progress/${STATE.termId}/${cls}/${id}`);
+  if(STATE.progress[cls]) delete STATE.progress[cls][id];
   renderDayDetail();
   renderCalendar();
 }
@@ -985,6 +999,14 @@ async function saveStudentRecord(cls){
   toast('학생 기록이 저장됐어요','ok');
 }
 
+async function deleteStudentRecord(id){
+  if(!confirm('이 학생 기록을 정말 삭제할까요? 삭제하면 되돌릴 수 없어요.')) return;
+  await dbRemove(`studentRecords/${STATE.termId}/${id}`);
+  delete STATE.studentRecords[id];
+  renderStudentsScreen();
+  toast('학생 기록이 삭제됐어요','ok');
+}
+
 function closeModal(){ document.getElementById('modalOverlay').classList.remove('open'); }
 
 /* ======================================================================
@@ -1100,6 +1122,7 @@ function renderStudentDetail(id){
     <div class="rdate">${fmtShort(r.date)}</div>
     <div class="tag-badge ${r.tag}">${r.tag}</div>
     <div style="flex:1;font-size:13px;">${r.note}</div>
+    <button class="iconbtn" onclick="deleteStudentRecord('${r.rid}')">✕</button>
   </div>`).join('') || `<div class="empty-hint">기록이 없어요.</div>`;
 
   return `
