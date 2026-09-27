@@ -743,7 +743,6 @@ function openProgressModal(cls, period, isEdit){
   const entries = Object.entries(STATE.progress[cls]||{}).map(([id,v])=>({...v,id})).sort((a,b)=>a.seq-b.seq);
   const last = existing ? entries.filter(e=>e.seq<existing.seq).slice(-1)[0] : entries.slice(-1)[0];
   const nextSeq = existing ? existing.seq : entries.length+1;
-  const unitOptions = ['내심','외심','기타'];
 
   document.getElementById('modalBody').innerHTML = `
     <div class="modal-title"><span>${cls} · ${nextSeq}차시 진도 기록</span><button onclick="closeModal()">✕</button></div>
@@ -755,8 +754,6 @@ function openProgressModal(cls, period, isEdit){
         <option value="학습지" ${existing&&existing.material==='학습지'?'selected':''}>학습지</option>
         <option value="프린트" ${existing&&existing.material==='프린트'?'selected':''}>프린트</option>
       </select></div>
-    <div class="field"><label>단원</label>
-      <select id="pf_unit">${unitOptions.map(u=>`<option ${existing&&existing.unit===u?'selected':''}>${u}</option>`).join('')}</select></div>
     <div class="field"><label>어디까지 나갔는지</label>
       <input id="pf_end" placeholder="예: p.181 문제2까지" value="${existing?existing.endPoint||'':''}"></div>
     <div class="field"><label>비고 (선택)</label>
@@ -768,11 +765,11 @@ function openProgressModal(cls, period, isEdit){
 
 async function saveProgress(cls, period, seq, startPoint, existingId){
   const material = document.getElementById('pf_material').value;
-  const unit = document.getElementById('pf_unit').value;
   const endPoint = document.getElementById('pf_end').value.trim();
   const note = document.getElementById('pf_note').value.trim();
   if(!endPoint){ alert('어디까지 나갔는지 입력해주세요'); return; }
-  const data = {seq, date:STATE.selectedDateKey, period, cls, material, startPoint:startPoint||'', endPoint, unit, note, createdAt:Date.now()};
+  const existingEntry = existingId ? (STATE.progress[cls]||{})[existingId] : null;
+  const data = {seq, date:STATE.selectedDateKey, period, cls, material, startPoint:startPoint||'', endPoint, unit:(existingEntry?existingEntry.unit||'':''), note, createdAt:Date.now()};
   if(existingId){
     await dbSet(`progress/${STATE.termId}/${cls}/${existingId}`, data);
     STATE.progress[cls][existingId]=data;
