@@ -334,6 +334,8 @@ window.addEventListener('pageshow', forceViewportRecalc);
 // ⚠️ 아래 주소를 본인의 Firebase Realtime Database 주소로 바꿔주세요.
 // (Firebase 콘솔 > Realtime Database 에서 확인할 수 있어요. 칼각매치 만들 때 쓰신 방식과 동일해요.)
 const FIREBASE_DB_URL = "https://class-calendar-85548-default-rtdb.asia-southeast1.firebasedatabase.app";
+// 익명 인증용 Web API Key (파이어베이스 콘솔 > 프로젝트 설정 > 일반 > 내 앱에서 확인)
+const FIREBASE_API_KEY = "AIzaSyClgMRSjsSEaCeqfBMMQpjjbdo6rC294so";
 
 const WEEKDAY_KR = ['일','월','화','수','목','금','토'];
 const WEEKDAY_EN = ['sun','mon','tue','wed','thu','fri','sat'];
@@ -372,7 +374,28 @@ function defaultTermId(){
 }
 
 /* ---------------------- Firebase REST 헬퍼 ---------------------- */
-function dbPath(p){ return `${FIREBASE_DB_URL}/${p}.json`; }
+let AUTH_TOKEN = null;
+// 앱을 열 때마다 파이어베이스 익명 인증으로 로그인해서 토큰을 받아와요.
+// 이 토큰이 있어야 "로그인된 사람만 허용" 규칙을 통과해서 데이터를 읽고 쓸 수 있어요.
+async function ensureAuth(){
+  try{
+    const res = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${FIREBASE_API_KEY}`, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({returnSecureToken:true})
+    });
+    if(!res.ok) throw new Error(res.status);
+    const data = await res.json();
+    AUTH_TOKEN = data.idToken;
+  }catch(e){
+    console.error('익명 인증 실패', e);
+    toast('인증 실패 · 새로고침해서 다시 시도해주세요','error');
+  }
+}
+function dbPath(p){
+  const authParam = AUTH_TOKEN ? `?auth=${AUTH_TOKEN}` : '';
+  return `${FIREBASE_DB_URL}/${p}.json${authParam}`;
+}
 async function dbGet(p){
   try{
     const res = await fetch(dbPath(p));
@@ -435,14 +458,20 @@ function checkPinGate(){
 }
 function submitPin(){
   const savedPin = localStorage.getItem('appPin');
-  const val = document.getElementById('pinInput').value.trim();
+  const input = document.getElementById('pinInput');
+  const val = input.value.trim();
   if(!/^\d{6}$/.test(val)){ alert('숫자 6자리로 입력해주세요'); return; }
   if(!savedPin){
     localStorage.setItem('appPin', val);
     unlockApp();
   } else {
     if(val===savedPin) unlockApp();
-    else alert('번호가 틀렸어요');
+    else {
+      alert('번호가 틀렸어요');
+      // 틀렸을 때 이전에 입력한 숫자가 남아있지 않도록 지우고, 바로 다시 입력할 수 있게 해줘요
+      input.value = '';
+      input.focus();
+    }
   }
 }
 function resetPin(){
@@ -480,6 +509,17 @@ async function loadAllData(){
 
 // 0교시는 쓰지 않으므로, 교시 시간 설정·기본 시간표·교시별 오버라이드 등 앱 전체에서
 // 0교시와 관련된 데이터를 자동으로 정리해요. 해당 데이터가 없으면 아무 일도 하지 않아요.
+// 화면에 "저장됨/삭제됨" 알림이 뜨지 않는, 조용한 버전의 저장/삭제예요.
+// 사용자가 직접 누른 동작이 아닌, 자동 배경 정리 작업에서만 써요.
+async function silentSet(p, data){
+  try{ await fetch(dbPath(p),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}); }
+  catch(e){ /* 배경 정리라 실패해도 조용히 넘어가요 */ }
+}
+async function silentRemove(p){
+  try{ await fetch(dbPath(p),{method:'DELETE'}); }
+  catch(e){ /* 배경 정리라 실패해도 조용히 넘어가요 */ }
+}
+
 async function removePeriodZeroEverywhere(){
   const t = STATE.termId;
 
@@ -487,25 +527,26 @@ async function removePeriodZeroEverywhere(){
     const times = {...STATE.periodTimes};
     delete times['0'];
     STATE.periodTimes = times;
-    await dbSet('config/periodTimes', times);
+    await silentSet('config/periodTimes', times);
   }
 
   for(const day in STATE.timetable){
     if(STATE.timetable[day] && Object.prototype.hasOwnProperty.call(STATE.timetable[day], '0')){
       delete STATE.timetable[day]['0'];
-      await dbRemove(`timetable/${t}/${day}/0`);
+      await silentRemove(`timetable/${t}/${day}/0`);
     }
   }
 
   for(const dk in STATE.periodOverrides){
     if(STATE.periodOverrides[dk] && Object.prototype.hasOwnProperty.call(STATE.periodOverrides[dk], '0')){
       delete STATE.periodOverrides[dk]['0'];
-      await dbRemove(`periodOverrides/${t}/${dk}/0`);
+      await silentRemove(`periodOverrides/${t}/${dk}/0`);
     }
   }
 }
 
 async function bootApp(){
+  await ensureAuth();
   await loadAllData();
   renderCalendar();
   renderQuickBanner();
