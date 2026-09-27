@@ -547,28 +547,46 @@ function getPeriodsForDate(d){
   const dayIdx = d.getDay();
   const dayKey = dayOv ? dayOv.weekday : WEEKDAY_EN[dayIdx];
   const periodsForDay = STATE.timetable[dayKey] || {};
-  const periods = Object.keys(periodsForDay).filter(p=>periodsForDay[p]).sort((a,b)=>Number(a)-Number(b));
+  const overridesForDay = STATE.periodOverrides[dk] || {};
+  // 기본 시간표에 있는 교시 + (원래 시간표엔 없지만) 추가/이동으로 생긴 교시를 모두 합쳐요
+  const periodSet = new Set([
+    ...Object.keys(periodsForDay).filter(p=>periodsForDay[p]),
+    ...Object.keys(overridesForDay)
+  ]);
+  const periods = Array.from(periodSet).sort((a,b)=>Number(a)-Number(b));
   return periods.map(p=>{
-    const cls = periodsForDay[p];
-    let entry = {period:Number(p), cls};
+    const baseCls = periodsForDay[p];
+    let entry = {period:Number(p), cls:baseCls};
     if(isBlockingAcEntry(acEntry)){
       entry.status='holiday'; entry.holidayType=acEntry.type; entry.holidayMemo=acEntry.memo;
       return entry;
     }
     if(acEntry) entry.eventNote = acEntry.memo; // 행사(진도포함): 정상 수업으로 취급하되 안내만 붙여줘요
-    const ov = (STATE.periodOverrides[dk]||{})[p];
+    const ov = overridesForDay[p];
     if(ov){
       if(ov.type==='swap'){
         entry.cls = ov.cls;
-        entry.originalCls = cls;
+        entry.originalCls = baseCls;
         entry.status = 'swap';
+        entry.movedFrom = ov.movedFrom || null;
         entry.progressEntry = findProgressEntry(ov.cls, dk, Number(p));
+        return entry;
+      }
+      if(ov.type==='moved'){
+        entry.cls = ov.cls || baseCls;
+        entry.status = 'moved';
+        entry.movedTo = ov.movedTo;
         return entry;
       }
       entry.status = ov.type; entry.overrideMemo = ov.memo; entry.countSession = !!ov.countSession;
       return entry;
     }
-    const rec = findProgressEntry(cls, dk, Number(p));
+    if(!baseCls){
+      // 원래 시간표에도 없고 override도 없는데 목록에 들어온 경우는 없지만, 방어적으로 처리
+      entry.status = 'unrecorded';
+      return entry;
+    }
+    const rec = findProgressEntry(baseCls, dk, Number(p));
     entry.status = rec ? 'recorded' : 'unrecorded';
     entry.progressEntry = rec;
     return entry;
@@ -652,6 +670,7 @@ function renderQuickBanner(){
   let cls = (STATE.timetable[dayKey]||{})[nowPeriod];
   const ov = (STATE.periodOverrides[dk]||{})[nowPeriod];
   if(ov && ov.type==='swap') cls = ov.cls;
+  else if(ov && ov.type==='moved'){ sub.textContent='지금 · '+nowPeriod+'교시'; main.textContent='다른 날짜로 이동됨'; return; }
   else if(ov && (ov.type==='event'||ov.type==='other')){ sub.textContent='지금 · '+nowPeriod+'교시'; main.textContent = ov.type==='event'?'행사':'기타 활동'; return; }
   if(!cls){ sub.textContent='지금 · '+nowPeriod+'교시'; main.textContent='배정된 수업 없음'; return; }
   sub.textContent = `지금 · ${nowPeriod}교시 진행 중`;
@@ -696,14 +715,15 @@ function renderDayDetail(){
       <div class="card-top"><div class="cname">${acEntry.type||'학사일정'}</div><div class="badge gray">${acEntry.type||'휴업일'}</div></div>
       <div class="sub">${acEntry.memo||''}</div>
     </div>`;
-  } else if(!periods.length){
-    html += `<div class="empty-hint">이 날은 시간표상 수업이 없어요.</div>`;
   } else {
     if(acEntry){
       // 행사(진도포함): 진도는 정상적으로 기록하되, 오늘 무슨 행사인지만 안내해줘요
       html += `<div class="card" style="background:#F9FAFB;">
         <div class="sub" style="color:#6B7280;">오늘은 <b>${acEntry.type}</b>인 날이에요: ${acEntry.memo||''} (수업·진도 기록은 평소처럼 해주세요)</div>
       </div>`;
+    }
+    if(!periods.length){
+      html += `<div class="empty-hint">이 날은 시간표상 수업이 없어요.</div>`;
     }
     periods.forEach(p=>{
       if(p.status==='event'){
@@ -721,32 +741,44 @@ function renderDayDetail(){
             <button class="btn ghost" onclick="clearOverride('${p.period}')">되돌리기</button>
           </div>
         </div>`;
+      } else if(p.status==='moved'){
+        const toLabel = p.movedTo ? `${fmtShort(p.movedTo.date)} ${p.movedTo.period}교시` : '다른 시간';
+        html += `<div class="card">
+          <div class="card-top"><div class="cname">${p.period}교시 · ${p.cls||''}</div><div class="badge gray">이동됨</div></div>
+          <div class="sub" style="color:#6B7280;">${toLabel}로 이동했어요. 이 시간엔 수업이 없어요.</div>
+          <button class="link-btn" onclick="clearOverride('${p.period}')">이동 되돌리기</button>
+        </div>`;
       } else if(p.status==='swap'){
         const swapNote = p.originalCls && p.originalCls!==p.cls ? `<div class="sub" style="color:#9CA3AF;">원래 시간표: ${p.originalCls}</div>` : '';
+        const movedFromNote = p.movedFrom ? `<div class="sub" style="color:#9CA3AF;">${fmtShort(p.movedFrom.date)} ${p.movedFrom.period}교시에서 이동해왔어요</div>` : '';
         if(p.progressEntry){
           const e=p.progressEntry;
           html += `<div class="card">
             <div class="card-top"><div class="cname">${p.period}교시 · ${p.cls}</div><div class="badge blue">기록완료</div></div>
             <div class="sub">${e.seq}차시 · ${e.material?e.material+' · ':''}${e.endPoint}</div>
-            ${swapNote}
+            ${swapNote}${movedFromNote}
             <div class="card-actions">
               <button class="btn ghost" onclick="openProgressModal('${p.cls}',${p.period},true)">기록 수정</button>
               <button class="btn secondary" onclick="openStudentRecordModal('${p.cls}')">학생 기록</button>
             </div>
-            <div style="display:flex;gap:10px;">
+            <div style="display:flex;gap:10px;flex-wrap:wrap;">
               <button class="link-btn" onclick="clearOverride('${p.period}')">시간표 교체 되돌리기</button>
+              <button class="link-btn" onclick="openMoveModal('${p.period}','${p.cls}')">다른 날짜로 이동</button>
               <button class="link-btn" style="color:#DC2626;" onclick="deleteProgress('${p.cls}','${e.id}')">기록 삭제</button>
             </div>
           </div>`;
         } else {
           html += `<div class="card warn">
             <div class="card-top"><div class="cname">${p.period}교시 · ${p.cls}</div><div class="badge orange">미기록</div></div>
-            ${swapNote}
+            ${swapNote}${movedFromNote}
             <div class="card-actions">
               <button class="btn primary" onclick="openProgressModal('${p.cls}',${p.period},false)">진도 기록</button>
               <button class="btn secondary" onclick="openStudentRecordModal('${p.cls}')">학생 기록</button>
             </div>
-            <button class="link-btn" onclick="clearOverride('${p.period}')">시간표 교체 되돌리기</button>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;">
+              <button class="link-btn" onclick="clearOverride('${p.period}')">시간표 교체 되돌리기</button>
+              <button class="link-btn" onclick="openMoveModal('${p.period}','${p.cls}')">다른 날짜로 이동</button>
+            </div>
           </div>`;
         }
       } else if(p.status==='recorded'){
@@ -758,8 +790,9 @@ function renderDayDetail(){
             <button class="btn ghost" onclick="openProgressModal('${p.cls}',${p.period},true)">기록 수정</button>
             <button class="btn secondary" onclick="openStudentRecordModal('${p.cls}')">학생 기록</button>
           </div>
-          <div style="display:flex;gap:10px;">
+          <div style="display:flex;gap:10px;flex-wrap:wrap;">
             <button class="link-btn" onclick="openSwapModal('${p.period}','${p.cls}')">시간표 교체</button>
+            <button class="link-btn" onclick="openMoveModal('${p.period}','${p.cls}')">다른 날짜로 이동</button>
             <button class="link-btn" style="color:#DC2626;" onclick="deleteProgress('${p.cls}','${e.id}')">기록 삭제</button>
           </div>
         </div>`;
@@ -770,13 +803,15 @@ function renderDayDetail(){
             <button class="btn primary" onclick="openProgressModal('${p.cls}',${p.period},false)">진도 기록</button>
             <button class="btn secondary" onclick="openStudentRecordModal('${p.cls}')">학생 기록</button>
           </div>
-          <div style="display:flex;gap:10px;">
+          <div style="display:flex;gap:10px;flex-wrap:wrap;">
             <button class="link-btn" onclick="openOverrideModal('${p.period}','${p.cls}')">행사·기타 활동으로 표시</button>
             <button class="link-btn" onclick="openSwapModal('${p.period}','${p.cls}')">시간표 교체</button>
+            <button class="link-btn" onclick="openMoveModal('${p.period}','${p.cls}')">다른 날짜로 이동</button>
           </div>
         </div>`;
       }
     });
+    html += `<button class="btn ghost full" onclick="openAddPeriodModal()">+ 교시 추가</button>`;
   }
 
   html += `<div class="section-label">개인 일정</div>`;
@@ -812,9 +847,21 @@ function renderDayDetail(){
 
 async function clearOverride(period){
   const dk = STATE.selectedDateKey;
+  const ov = (STATE.periodOverrides[dk]||{})[period];
+  // 이동으로 생긴 override라면, 반대편(이동 전/이동 후) 날짜의 짝도 함께 되돌려줘요
+  if(ov){
+    let pairDk=null, pairPeriod=null;
+    if(ov.movedFrom){ pairDk=ov.movedFrom.date; pairPeriod=ov.movedFrom.period; }
+    else if(ov.movedTo){ pairDk=ov.movedTo.date; pairPeriod=ov.movedTo.period; }
+    if(pairDk!=null){
+      await dbRemove(`periodOverrides/${STATE.termId}/${pairDk}/${pairPeriod}`);
+      if(STATE.periodOverrides[pairDk]) delete STATE.periodOverrides[pairDk][pairPeriod];
+    }
+  }
   await dbRemove(`periodOverrides/${STATE.termId}/${dk}/${period}`);
   if(STATE.periodOverrides[dk]) delete STATE.periodOverrides[dk][period];
   renderDayDetail();
+  renderCalendar();
 }
 
 async function deletePersonalEvent(id){
@@ -934,6 +981,86 @@ async function saveSwap(period){
   const dk = STATE.selectedDateKey;
   const sel = document.getElementById('sw_cls').value;
   const cls = sel==='__custom__' ? document.getElementById('sw_custom').value.trim() : sel;
+  if(!cls){ alert('반 이름을 입력해주세요'); return; }
+  const data = {type:'swap', cls};
+  await dbSet(`periodOverrides/${STATE.termId}/${dk}/${period}`, data);
+  STATE.periodOverrides[dk] = STATE.periodOverrides[dk]||{};
+  STATE.periodOverrides[dk][period]=data;
+  closeModal(); renderDayDetail(); renderCalendar();
+}
+
+/* ---------------------- 모달: 다른 날짜·교시로 이동 ---------------------- */
+function getPeriodOptions(){
+  const keys = Object.keys(STATE.periodTimes);
+  if(keys.length) return keys.sort((a,b)=>Number(a)-Number(b));
+  return ['1','2','3','4','5','6','7'];
+}
+function openMoveModal(period, cls){
+  const dk = STATE.selectedDateKey;
+  const periodOpts = getPeriodOptions();
+  document.getElementById('modalBody').innerHTML = `
+    <div class="modal-title"><span>${period}교시 · ${cls} 다른 날짜로 이동</span><button onclick="closeModal()">✕</button></div>
+    <div style="font-size:11.5px;color:#9CA3AF;margin-top:-4px;">이 수업을 다른 날짜·교시에 하게 됐다면 이동해주세요. 원래 시간(오늘 ${period}교시)은 수업 없음으로 바뀌고, 진도는 이동한 날짜·교시에서 기록하면 돼요.</div>
+    <div class="field"><label>이동할 날짜</label><input id="mv_date" type="date" value="${dk}"></div>
+    <div class="field"><label>이동할 교시</label>
+      <select id="mv_period">${periodOpts.map(p=>`<option value="${p}" ${p===String(period)?'selected':''}>${p}교시</option>`).join('')}</select></div>
+    <button class="btn primary full" onclick="saveMove('${period}','${cls}')">저장</button>
+  `;
+  document.getElementById('modalOverlay').classList.add('open');
+}
+async function saveMove(period, cls){
+  const fromDk = STATE.selectedDateKey;
+  const toDk = document.getElementById('mv_date').value;
+  const toPeriod = document.getElementById('mv_period').value;
+  if(!toDk){ alert('날짜를 선택해주세요'); return; }
+  if(toDk===fromDk && String(toPeriod)===String(period)){ alert('같은 날짜·교시로는 이동할 수 없어요'); return; }
+  const destPeriods = getPeriodsForDate(parseDateKey(toDk));
+  const destExisting = destPeriods.find(p=>p.period===Number(toPeriod));
+  if(destExisting){
+    if(!confirm(`${fmtShort(toDk)} ${toPeriod}교시엔 이미 ${destExisting.cls||'다른'} 수업(또는 일정)이 있어요. 덮어쓸까요?`)) return;
+  }
+  const destData = {type:'swap', cls, movedFrom:{date:fromDk, period:Number(period)}};
+  const srcData = {type:'moved', cls, movedTo:{date:toDk, period:Number(toPeriod)}};
+  await dbSet(`periodOverrides/${STATE.termId}/${toDk}/${toPeriod}`, destData);
+  await dbSet(`periodOverrides/${STATE.termId}/${fromDk}/${period}`, srcData);
+  STATE.periodOverrides[toDk] = STATE.periodOverrides[toDk]||{};
+  STATE.periodOverrides[toDk][toPeriod] = destData;
+  STATE.periodOverrides[fromDk] = STATE.periodOverrides[fromDk]||{};
+  STATE.periodOverrides[fromDk][period] = srcData;
+  closeModal(); renderDayDetail(); renderCalendar();
+}
+
+/* ---------------------- 모달: 원래 시간표에 없는 교시 추가 ---------------------- */
+function openAddPeriodModal(){
+  const dk = STATE.selectedDateKey;
+  const d = parseDateKey(dk);
+  const existingPeriods = new Set(getPeriodsForDate(d).map(p=>String(p.period)));
+  const available = getPeriodOptions().filter(p=>!existingPeriods.has(String(p)));
+  if(!available.length){ alert('추가할 수 있는 교시가 없어요 (이미 모든 교시가 채워져 있어요)'); return; }
+  const classes = getAllClassNames();
+  document.getElementById('modalBody').innerHTML = `
+    <div class="modal-title"><span>교시 추가</span><button onclick="closeModal()">✕</button></div>
+    <div style="font-size:11.5px;color:#9CA3AF;margin-top:-4px;">원래 시간표엔 없지만 필요해서 수업하게 된 교시를 추가할 때 써요. 진도는 평소처럼 기록할 수 있어요.</div>
+    <div class="field"><label>교시</label>
+      <select id="ap_period">${available.map(p=>`<option value="${p}">${p}교시</option>`).join('')}</select></div>
+    <div class="field"><label>수업할 반</label>
+      <select id="ap_cls">
+        ${classes.map(c=>`<option value="${c}">${c}</option>`).join('')}
+        <option value="__custom__">직접 입력</option>
+      </select></div>
+    <div class="field" id="ap_customWrap" style="display:none;"><label>반 이름 직접 입력</label><input id="ap_custom" placeholder="예: 2-1"></div>
+    <button class="btn primary full" onclick="saveAddPeriod()">저장</button>
+  `;
+  document.getElementById('ap_cls').addEventListener('change', e=>{
+    document.getElementById('ap_customWrap').style.display = e.target.value==='__custom__' ? 'block':'none';
+  });
+  document.getElementById('modalOverlay').classList.add('open');
+}
+async function saveAddPeriod(){
+  const dk = STATE.selectedDateKey;
+  const period = document.getElementById('ap_period').value;
+  const sel = document.getElementById('ap_cls').value;
+  const cls = sel==='__custom__' ? document.getElementById('ap_custom').value.trim() : sel;
   if(!cls){ alert('반 이름을 입력해주세요'); return; }
   const data = {type:'swap', cls};
   await dbSet(`periodOverrides/${STATE.termId}/${dk}/${period}`, data);
