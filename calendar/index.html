@@ -607,6 +607,7 @@ function getPeriodsForDate(d){
         entry.movedTo = ov.movedTo;
         return entry;
       }
+      entry.cls = ov.cls || baseCls;
       entry.status = ov.type; entry.overrideMemo = ov.memo; entry.countSession = !!ov.countSession;
       return entry;
     }
@@ -807,6 +808,7 @@ function renderDayDetail(){
               <button class="btn secondary" onclick="openStudentRecordModal('${p.cls}')">학생 기록</button>
             </div>
             <div style="display:flex;gap:10px;flex-wrap:wrap;">
+              <button class="link-btn" onclick="openOverrideModal('${p.period}','${p.cls}')">행사·기타 활동으로 표시</button>
               <button class="link-btn" onclick="clearOverride('${p.period}')">되돌리기</button>
               <button class="link-btn" onclick="openMoveModal('${p.period}','${p.cls}')">다른 날짜로 이동</button>
               <button class="link-btn" style="color:#DC2626;" onclick="deleteClassPeriod('${p.period}','${p.cls}')">수업 삭제</button>
@@ -971,19 +973,21 @@ function openOverrideModal(period, cls){
     <div class="field" id="ov_countWrap" style="display:none;">
       <label><input type="checkbox" id="ov_count" style="width:auto;display:inline-block;margin-right:6px;">이 활동도 진도 차시에 포함시키기</label>
     </div>
-    <button class="btn primary full" onclick="saveOverride(${period})">저장</button>
+    <button class="btn primary full" onclick="saveOverride('${period}','${cls}')">저장</button>
   `;
   document.getElementById('ov_type').addEventListener('change', e=>{
     document.getElementById('ov_countWrap').style.display = e.target.value==='other' ? 'block':'none';
   });
   document.getElementById('modalOverlay').classList.add('open');
 }
-async function saveOverride(period){
+async function saveOverride(period, cls){
   const dk = STATE.selectedDateKey;
   const type = document.getElementById('ov_type').value;
   const memo = document.getElementById('ov_memo').value.trim();
   const count = document.getElementById('ov_count') ? document.getElementById('ov_count').checked : false;
-  const data = {type, memo, countSession:count};
+  const data = {type, memo, countSession:count, cls};
+  // 이동해 온 수업이었다면, 원래 있던 자리는 실제 수업이 아니게 되니 "삭제됨"으로 정리해줘요
+  await cascadeCancelPartner(dk, period);
   await dbSet(`periodOverrides/${STATE.termId}/${dk}/${period}`, data);
   STATE.periodOverrides[dk] = STATE.periodOverrides[dk]||{};
   STATE.periodOverrides[dk][period]=data;
