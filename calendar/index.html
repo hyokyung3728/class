@@ -490,6 +490,7 @@ function unlockApp(){
 async function loadAllData(){
   const cfg = await dbGet('config') || {};
   STATE.termId = cfg.currentTerm || defaultTermId();
+  STATE.allTerms = cfg.terms || {};
   const termCfg = (cfg.terms && cfg.terms[STATE.termId]) || {};
   STATE.targetSessions = termCfg.targetSessions || 0;
   STATE.periodTimes = cfg.periodTimes || DEFAULT_PERIOD_TIMES;
@@ -1487,6 +1488,7 @@ function renderSettingsScreen(){
       <div class="field"><label>학기 (예: 2026-2)</label><input id="st_term" value="${STATE.termId}"></div>
       <div class="field"><label>이번 학기 목표 총 차시 수 (진도율 계산용, 선택)</label><input id="st_target" type="number" value="${STATE.targetSessions||''}"></div>
       <button class="btn primary" onclick="saveTermSettings()">학기 설정 저장</button>
+      ${renderTermSwitcher()}
     </div>
 
     <div class="settings-section">
@@ -1567,6 +1569,36 @@ async function saveTermSettings(){
   await loadAllData();
   renderSettingsScreen(); renderCalendar();
   toast('학기 설정이 저장됐어요','ok');
+}
+
+// 지금까지 써온 학기 목록을 보여주고, 탭 한 번으로 다른 학기로 전환할 수 있게 해줘요.
+// (실제 데이터는 지우지 않아요 — 그냥 어느 학기 데이터를 보고 있는지만 바뀌어요)
+function renderTermSwitcher(){
+  const termSet = new Set([...Object.keys(STATE.allTerms||{}), STATE.termId]);
+  const termList = Array.from(termSet).sort((a,b)=>b.localeCompare(a));
+  if(termList.length<=1){
+    return `<div style="font-size:11px;color:#9CA3AF;margin-top:10px;">아직 다른 학기 기록이 없어요.</div>`;
+  }
+  return `
+    <div style="margin-top:12px;">
+      <label style="font-size:12px;color:#6B7280;display:block;margin-bottom:6px;">지난 학기 목록 (탭해서 전환)</label>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        ${termList.map(term=>`
+          <button class="btn ${term===STATE.termId?'primary':'ghost'}" style="flex:none;padding:6px 12px;font-size:12.5px;" onclick="switchTerm('${term}')">${term}${term===STATE.termId?' (현재)':''}</button>
+        `).join('')}
+      </div>
+    </div>
+  `;
+}
+
+async function switchTerm(termId){
+  if(termId===STATE.termId) return;
+  await dbSet('config/currentTerm', termId);
+  await loadAllData();
+  renderSettingsScreen();
+  renderCalendar();
+  renderQuickBanner();
+  toast(`${termId} 학기로 전환했어요`,'ok');
 }
 
 async function savePeriodTimes(){
