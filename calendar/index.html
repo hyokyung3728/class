@@ -282,7 +282,8 @@
    기준으로 --app-vh 값을 직접 계산해서 넣어주면, 스와이프 없이도 처음부터
    하단 탭바가 화면 맨 아래에 딱 맞게 표시돼요. */
 function setAppVH(){
-  document.documentElement.style.setProperty('--app-vh', (window.innerHeight*0.01)+'px');
+  const h = (window.visualViewport && window.visualViewport.height) || window.innerHeight;
+  document.documentElement.style.setProperty('--app-vh', (h*0.01)+'px');
 }
 setAppVH();
 window.addEventListener('resize', setAppVH);
@@ -291,6 +292,30 @@ window.addEventListener('pageshow', setAppVH);
 if(window.visualViewport){ window.visualViewport.addEventListener('resize', setAppVH); }
 setTimeout(setAppVH,300);
 setTimeout(setAppVH,800);
+
+/* iOS 홈 화면 추가(standalone) 앱은 실행 직후 내부적으로 잘못된 화면 높이를 들고 있다가
+   화면을 스크롤(스와이프)해야 그때서야 바로잡는 경우가 있어요. 사용자가 직접 스와이프하지
+   않아도 되도록, 아주 살짝 스크롤이 생기게 만들었다가 곧바로 원위치로 되돌리는 방식으로
+   그 "스와이프 한 번"을 코드로 대신 해줘요. */
+let _recalcRunning = false;
+function forceViewportRecalc(){
+  if(_recalcRunning) return; // 겹쳐서 실행되면 서로의 임시 상태를 원래 값으로 착각해 고정돼버려요
+  _recalcRunning = true;
+  document.body.style.height = (window.innerHeight+2)+'px';
+  window.scrollTo(0,1);
+  requestAnimationFrame(()=>{
+    window.scrollTo(0,0);
+    setAppVH();
+    setTimeout(()=>{
+      document.body.style.height = '';
+      setAppVH();
+      _recalcRunning = false;
+    }, 60);
+  });
+}
+forceViewportRecalc();
+setTimeout(forceViewportRecalc, 350);
+window.addEventListener('pageshow', forceViewportRecalc);
 
 /* =========================================================================
    데이터 구조 (Firebase Realtime Database)
