@@ -765,6 +765,7 @@ function renderDayDetail(){
             <div style="display:flex;gap:10px;flex-wrap:wrap;">
               <button class="link-btn" onclick="clearOverride('${p.period}')">되돌리기</button>
               <button class="link-btn" onclick="openMoveModal('${p.period}','${p.cls}')">다른 날짜로 이동</button>
+              <button class="link-btn" style="color:#DC2626;" onclick="deleteClassPeriod('${p.period}','${p.cls}')">수업 삭제</button>
               <button class="link-btn" style="color:#DC2626;" onclick="deleteProgress('${p.cls}','${e.id}')">기록 삭제</button>
             </div>
           </div>`;
@@ -779,6 +780,7 @@ function renderDayDetail(){
             <div style="display:flex;gap:10px;flex-wrap:wrap;">
               <button class="link-btn" onclick="clearOverride('${p.period}')">되돌리기</button>
               <button class="link-btn" onclick="openMoveModal('${p.period}','${p.cls}')">다른 날짜로 이동</button>
+              <button class="link-btn" style="color:#DC2626;" onclick="deleteClassPeriod('${p.period}','${p.cls}')">수업 삭제</button>
             </div>
           </div>`;
         }
@@ -983,6 +985,22 @@ async function unlinkPartnerIfAny(dk, period){
   STATE.periodOverrides[pairDk] = STATE.periodOverrides[pairDk]||{};
   STATE.periodOverrides[pairDk][pairPeriod] = cleaned;
 }
+// (dk,period) 자리를 완전히 삭제할 때 쓰는 버전. 이동으로 생긴 짝이 있다면
+// 상대방 쪽도 함께 "삭제됨"으로 바꿔서, 그 수업이 어느 쪽에서도 열리지 않게 해줘요.
+async function cascadeCancelPartner(dk, period){
+  const ov = (STATE.periodOverrides[dk]||{})[period];
+  if(!ov) return;
+  let pairDk=null, pairPeriod=null;
+  if(ov.movedFrom){ pairDk=ov.movedFrom.date; pairPeriod=ov.movedFrom.period; }
+  else if(ov.movedTo){ pairDk=ov.movedTo.date; pairPeriod=ov.movedTo.period; }
+  if(pairDk==null) return;
+  const pairOv = (STATE.periodOverrides[pairDk]||{})[pairPeriod];
+  if(!pairOv) return;
+  const cancelled = {type:'moved', cls: pairOv.cls, movedTo:null};
+  await dbSet(`periodOverrides/${STATE.termId}/${pairDk}/${pairPeriod}`, cancelled);
+  STATE.periodOverrides[pairDk] = STATE.periodOverrides[pairDk]||{};
+  STATE.periodOverrides[pairDk][pairPeriod] = cancelled;
+}
 
 /* ---------------------- 모달: 다른 날짜·교시로 이동 ---------------------- */
 function openMoveModal(period, cls){
@@ -1033,7 +1051,8 @@ async function deleteClassPeriod(period, cls){
       if(STATE.progress[cls]) delete STATE.progress[cls][existingProgress.id];
     }
   }
-  await unlinkPartnerIfAny(dk, period);
+  // 이동해 온 수업이었다면, 원래 있던 자리도 함께 "삭제됨"으로 바뀌어요 (그 수업은 어디서도 열리지 않으니까요)
+  await cascadeCancelPartner(dk, period);
   const data = {type:'moved', cls, movedTo:null};
   await dbSet(`periodOverrides/${STATE.termId}/${dk}/${period}`, data);
   STATE.periodOverrides[dk] = STATE.periodOverrides[dk]||{};
