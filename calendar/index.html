@@ -46,7 +46,7 @@
   .pin-box button{width:100%;margin-top:14px;background:var(--blue);color:#fff;border:none;border-radius:10px;padding:12px;font-size:14px;font-weight:700;}
 
   /* ---------- 전체 앱 셸 ---------- */
-  #app{display:none;flex-direction:column;height:100%;max-width:520px;width:100%;margin:0 auto;background:var(--gray-bg);position:relative;}
+  #app{display:none;flex-direction:column;height:100%;max-width:520px;width:100%;margin:0 auto;background:var(--gray-bg);position:relative;padding-top:env(safe-area-inset-top);box-sizing:border-box;}
   .screen{display:none;flex-direction:column;height:100%;min-height:0;}
   .screen.active{display:flex;}
   .scroll-area{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;}
