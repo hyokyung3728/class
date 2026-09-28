@@ -83,7 +83,7 @@
   .day-cell.today .dnum{color:var(--blue-dark);font-weight:700;}
   .day-cell .dots{display:flex;gap:2px;margin-top:4px;}
   .dot{width:5px;height:5px;border-radius:50%;}
-  .dot.blue{background:var(--blue);} .dot.orange{background:var(--orange);} .dot.gray{background:var(--gray-faint);} .dot.purple{background:#7C3AED;}
+  .dot.blue{background:var(--blue);} .dot.orange{background:var(--orange);} .dot.gray{background:var(--gray-faint);} .dot.purple{background:#7C3AED;} .dot.green{background:#16A34A;}
 
   /* ---------- 하단 탭바 ---------- */
   #tabbar{flex-shrink:0;display:flex;align-items:center;border-top:1px solid var(--gray-border);background:#fff;padding:6px 8px calc(8px + env(safe-area-inset-bottom));}
@@ -221,7 +221,7 @@
   <!-- ---------- 캘린더 ---------- -->
   <div class="screen active" id="screen-calendar">
     <div class="cal-header">
-      <div class="cal-nav">
+      <div class="cal-nav" id="calNavRow">
         <button onclick="changeMonth(-1)">‹</button>
         <div class="month-label" id="monthLabel">2026년 9월</div>
         <button onclick="changeMonth(1)">›</button>
@@ -233,9 +233,13 @@
         </div>
         <button onclick="goQuickRecord()">바로 기록</button>
       </div>
-      <div class="weekday-row"><div>일</div><div>월</div><div>화</div><div>수</div><div>목</div><div>금</div><div>토</div></div>
+      <div class="weekday-row" id="weekdayRow"><div>일</div><div>월</div><div>화</div><div>수</div><div>목</div><div>금</div><div>토</div></div>
+      <button class="link-btn" id="calViewToggleBtn" style="width:100%;text-align:right;" onclick="toggleCalendarView()">☰ 목록으로 보기</button>
     </div>
-    <div class="day-grid-wrap"><div class="day-grid" id="dayGrid"></div></div>
+    <div class="day-grid-wrap" id="dayGridWrap"><div class="day-grid" id="dayGrid"></div></div>
+    <div class="scroll-area" id="agendaWrap" style="display:none;" onscroll="onAgendaScroll()">
+      <div id="agendaList" style="padding:2px 16px 16px;display:flex;flex-direction:column;gap:10px;"></div>
+    </div>
   </div>
 
   <!-- ---------- 날짜상세 ---------- -->
@@ -374,7 +378,9 @@ let STATE = {
   currentMonthDate: new Date(),
   selectedDateKey: null,
   selectedStudentId: null,
-  studentSearch: ''
+  studentSearch: '',
+  calendarViewMode: 'grid',
+  agendaDaysLoaded: 21
 };
 
 /* ---------------------- 날짜 유틸 ---------------------- */
@@ -837,16 +843,90 @@ function renderCalendar(){
         dotSpans.push(`<span class="dot ${hasUnrecorded?'orange':'blue'}"></span>`);
       }
     }
-    // 그날 등록된 개인 일정이 있으면 보라색 점을 하나 더 표시해요
-    if(Object.keys(STATE.personalEvents[dk]||{}).length){
-      dotSpans.push('<span class="dot purple"></span>');
-    }
+    // 그날 등록된 개인 일정이 있으면 구분(업무/개인)에 따라 점을 하나 더 표시해요
+    const dayEvents = Object.values(STATE.personalEvents[dk]||{});
+    if(dayEvents.some(ev=>ev.category==='업무')) dotSpans.push('<span class="dot purple"></span>');
+    if(dayEvents.some(ev=>ev.category==='개인')) dotSpans.push('<span class="dot green"></span>');
     if(dotSpans.length) dots = `<div class="dots">${dotSpans.join('')}</div>`;
     html += `<button class="day-cell ${isToday?'today':''} ${holidayClass}" onclick="openDayDetail('${dk}')">
       <div class="dnum">${dayNum}</div>${dots}
     </button>`;
   }
   document.getElementById('dayGrid').innerHTML = html;
+}
+
+/* ---------------------- 캘린더: 목록(어젠다) 보기 ----------------------
+   한 달 그리드는 날짜를 하나씩 눌러봐야 해서, 앞으로 며칠 동안 뭐가 바뀌는지
+   쭉 훑어보고 싶을 때는 불편해요. 그래서 오늘부터 평소와 다른 일(공휴일·행사·
+   이동/삭제된 수업, 업무·개인 일정)이 있는 날만 골라 목록으로 보여주는 보기를 추가했어요.
+   실제로 옮기거나 지우는 건 각 날짜를 눌러 날짜 상세 화면에서 그대로 하시면 돼요. */
+function toggleCalendarView(){
+  STATE.calendarViewMode = (STATE.calendarViewMode==='agenda') ? 'grid' : 'agenda';
+  const btn = document.getElementById('calViewToggleBtn');
+  const gridWrap = document.getElementById('dayGridWrap');
+  const agendaWrap = document.getElementById('agendaWrap');
+  const weekdayRow = document.getElementById('weekdayRow');
+  if(STATE.calendarViewMode==='agenda'){
+    gridWrap.style.display='none';
+    weekdayRow.style.display='none';
+    agendaWrap.style.display='block';
+    btn.textContent='📅 달력으로 보기';
+    STATE.agendaDaysLoaded = 21;
+    renderAgendaList();
+  } else {
+    gridWrap.style.display='';
+    weekdayRow.style.display='';
+    agendaWrap.style.display='none';
+    btn.textContent='☰ 목록으로 보기';
+  }
+}
+function onAgendaScroll(){
+  const el = document.getElementById('agendaWrap');
+  if(el.scrollTop + el.clientHeight >= el.scrollHeight - 150){
+    STATE.agendaDaysLoaded += 14;
+    renderAgendaList();
+  }
+}
+function renderAgendaList(){
+  const start = parseDateKey(todayKey());
+  let html = '';
+  let shown = 0;
+  for(let i=0; i<STATE.agendaDaysLoaded; i++){
+    const d = new Date(start.getFullYear(), start.getMonth(), start.getDate()+i);
+    const dk = dateKey(d);
+    const acEntry = Object.values(STATE.academicCalendar).find(e=> dk>=e.start && dk<=e.end);
+    const isHoliday = isBlockingAcEntry(acEntry);
+    const overridesForDay = STATE.periodOverrides[dk] || {};
+    const hasOverride = Object.keys(overridesForDay).length>0;
+    const events = Object.entries(STATE.personalEvents[dk]||{}).map(([id,v])=>({...v,id}));
+    if(!isHoliday && !hasOverride && !events.length) continue;
+    shown++;
+    const weekdayKr = WEEKDAY_KR[d.getDay()];
+    let lines = '';
+    if(isHoliday){
+      lines += `<div style="font-size:12px;color:#6B7280;">${acEntry.memo || '휴일/방학'}</div>`;
+    } else {
+      const periods = getPeriodsForDate(d).filter(p=> ['moved','swap','event','other'].includes(p.status));
+      periods.forEach(p=>{
+        let label='';
+        if(p.status==='moved') label = p.movedTo ? `${p.period}교시 ${p.cls||''} → ${fmtShort(p.movedTo.date)} ${p.movedTo.period}교시로 이동` : `${p.period}교시 ${p.cls||''} 삭제됨`;
+        else if(p.status==='swap') label = p.movedFrom ? `${p.period}교시 ${p.cls} (이동해옴: ${fmtShort(p.movedFrom.date)} ${p.movedFrom.period}교시)` : `${p.period}교시 ${p.cls} (추가된 수업)`;
+        else label = `${p.period}교시 ${p.status==='event'?'행사':'기타 활동'}${p.cls? ' · '+p.cls : ''}${p.overrideMemo? ' - '+p.overrideMemo : ''}`;
+        lines += `<div style="font-size:12px;color:#374151;">${label}</div>`;
+      });
+    }
+    events.sort((a,b)=>(a.time||'').localeCompare(b.time||'')).forEach(ev=>{
+      const color = ev.category==='업무' ? '#2563EB' : '#16A34A';
+      const bg = ev.category==='업무' ? '#EFF6FF' : '#DCFCE7';
+      lines += `<div style="font-size:12px;display:flex;gap:6px;align-items:center;"><span class="badge" style="color:${color};background:${bg};">${ev.category||''}</span> ${ev.time||''} ${ev.text}</div>`;
+    });
+    html += `<button class="card" style="width:100%;text-align:left;display:flex;flex-direction:column;gap:4px;" onclick="openDayDetail('${dk}')">
+      <div style="font-size:12.5px;font-weight:700;">${d.getMonth()+1}/${d.getDate()} (${weekdayKr})</div>
+      ${lines}
+    </button>`;
+  }
+  if(!shown) html = `<div class="empty-hint">앞으로 ${STATE.agendaDaysLoaded}일 안에 특별한 일정(행사·이동·삭제된 수업, 업무·개인 일정)이 없어요.</div>`;
+  document.getElementById('agendaList').innerHTML = html;
 }
 
 function getNowPeriod(){
