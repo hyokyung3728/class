@@ -380,7 +380,8 @@ let STATE = {
   selectedStudentId: null,
   studentSearch: '',
   calendarViewMode: 'grid',
-  agendaDaysLoaded: 21
+  agendaDaysLoaded: 21,
+  agendaExpanded: {}
 };
 
 /* ---------------------- 날짜 유틸 ---------------------- */
@@ -872,6 +873,7 @@ function toggleCalendarView(){
     agendaWrap.style.display='block';
     btn.textContent='📅 달력으로 보기';
     STATE.agendaDaysLoaded = 21;
+    STATE.agendaExpanded = {};
     renderAgendaList();
   } else {
     gridWrap.style.display='';
@@ -887,6 +889,12 @@ function onAgendaScroll(){
     renderAgendaList();
   }
 }
+// 목록 보기는 기본적으로 시간표(수업)는 빼고, 개인 일정·공휴일/학사일정 정보만 바로 보여줘요.
+// 그 날 수업에 변경(이동·삭제·행사 등)이 있으면 "시간표 보이기" 버튼이 뜨고, 눌러야 그 부분만 펼쳐져요.
+function toggleAgendaTimetable(dk){
+  STATE.agendaExpanded[dk] = !STATE.agendaExpanded[dk];
+  renderAgendaList();
+}
 function renderAgendaList(){
   const start = parseDateKey(todayKey());
   let html = '';
@@ -895,37 +903,47 @@ function renderAgendaList(){
     const d = new Date(start.getFullYear(), start.getMonth(), start.getDate()+i);
     const dk = dateKey(d);
     const acEntry = Object.values(STATE.academicCalendar).find(e=> dk>=e.start && dk<=e.end);
-    const isHoliday = isBlockingAcEntry(acEntry);
     const overridesForDay = STATE.periodOverrides[dk] || {};
     const hasOverride = Object.keys(overridesForDay).length>0;
     const events = Object.entries(STATE.personalEvents[dk]||{}).map(([id,v])=>({...v,id}));
-    if(!isHoliday && !hasOverride && !events.length) continue;
+    if(!acEntry && !hasOverride && !events.length) continue;
     shown++;
     const weekdayKr = WEEKDAY_KR[d.getDay()];
-    let lines = '';
-    if(isHoliday){
-      lines += `<div style="font-size:12px;color:#6B7280;">${acEntry.memo || '휴일/방학'}</div>`;
-    } else {
-      const periods = getPeriodsForDate(d).filter(p=> ['moved','swap','event','other'].includes(p.status));
-      periods.forEach(p=>{
-        let label='';
-        if(p.status==='moved') label = p.movedTo ? `${p.period}교시 ${p.cls||''} → ${fmtShort(p.movedTo.date)} ${p.movedTo.period}교시로 이동` : `${p.period}교시 ${p.cls||''} 삭제됨`;
-        else if(p.status==='swap') label = p.movedFrom ? `${p.period}교시 ${p.cls} (이동해옴: ${fmtShort(p.movedFrom.date)} ${p.movedFrom.period}교시)` : `${p.period}교시 ${p.cls} (추가된 수업)`;
-        else label = `${p.period}교시 ${p.status==='event'?'행사':'기타 활동'}${p.cls? ' · '+p.cls : ''}${p.overrideMemo? ' - '+p.overrideMemo : ''}`;
-        lines += `<div style="font-size:12px;color:#374151;">${label}</div>`;
-      });
+    let infoLines = '';
+    if(acEntry){
+      infoLines += `<div style="font-size:12px;color:#6B7280;">${acEntry.type?acEntry.type+' · ':''}${acEntry.memo||''}</div>`;
     }
     events.sort((a,b)=>(a.time||'').localeCompare(b.time||'')).forEach(ev=>{
       const color = ev.category==='업무' ? '#2563EB' : '#16A34A';
       const bg = ev.category==='업무' ? '#EFF6FF' : '#DCFCE7';
-      lines += `<div style="font-size:12px;display:flex;gap:6px;align-items:center;"><span class="badge" style="color:${color};background:${bg};">${ev.category||''}</span> ${ev.time||''} ${ev.text}</div>`;
+      infoLines += `<div style="font-size:12px;display:flex;gap:6px;align-items:center;"><span class="badge" style="color:${color};background:${bg};">${ev.category||''}</span> ${ev.time||''} ${ev.text}</div>`;
     });
-    html += `<button class="card" style="width:100%;text-align:left;display:flex;flex-direction:column;gap:4px;" onclick="openDayDetail('${dk}')">
-      <div style="font-size:12.5px;font-weight:700;">${d.getMonth()+1}/${d.getDate()} (${weekdayKr})</div>
-      ${lines}
-    </button>`;
+    let timetableHtml = '';
+    if(hasOverride){
+      const expanded = !!STATE.agendaExpanded[dk];
+      let ttLines = '';
+      if(expanded){
+        const periods = getPeriodsForDate(d).filter(p=> ['moved','swap','event','other'].includes(p.status));
+        periods.forEach(p=>{
+          let label='';
+          if(p.status==='moved') label = p.movedTo ? `${p.period}교시 ${p.cls||''} → ${fmtShort(p.movedTo.date)} ${p.movedTo.period}교시로 이동` : `${p.period}교시 ${p.cls||''} 삭제됨`;
+          else if(p.status==='swap') label = p.movedFrom ? `${p.period}교시 ${p.cls} (이동해옴: ${fmtShort(p.movedFrom.date)} ${p.movedFrom.period}교시)` : `${p.period}교시 ${p.cls} (추가된 수업)`;
+          else label = `${p.period}교시 ${p.status==='event'?'행사':'기타 활동'}${p.cls? ' · '+p.cls : ''}${p.overrideMemo? ' - '+p.overrideMemo : ''}`;
+          ttLines += `<div style="font-size:12px;color:#374151;">${label}</div>`;
+        });
+      }
+      timetableHtml = `<div>
+        <button class="link-btn" style="margin:2px 0 0;" onclick="toggleAgendaTimetable('${dk}')">${expanded?'시간표 숨기기':'시간표 보이기'}</button>
+        ${expanded ? `<div style="margin-top:2px;display:flex;flex-direction:column;gap:2px;">${ttLines}</div>` : ''}
+      </div>`;
+    }
+    html += `<div class="card" style="display:flex;flex-direction:column;gap:4px;">
+      <div style="font-size:12.5px;font-weight:700;cursor:pointer;" onclick="openDayDetail('${dk}')">${d.getMonth()+1}/${d.getDate()} (${weekdayKr})</div>
+      ${infoLines}
+      ${timetableHtml}
+    </div>`;
   }
-  if(!shown) html = `<div class="empty-hint">앞으로 ${STATE.agendaDaysLoaded}일 안에 특별한 일정(행사·이동·삭제된 수업, 업무·개인 일정)이 없어요.</div>`;
+  if(!shown) html = `<div class="empty-hint">앞으로 ${STATE.agendaDaysLoaded}일 안에 학사일정·시간표 변경·업무/개인 일정이 없어요.</div>`;
   document.getElementById('agendaList').innerHTML = html;
 }
 
