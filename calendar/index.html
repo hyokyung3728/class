@@ -923,12 +923,27 @@ function renderAgendaList(){
       const expanded = !!STATE.agendaExpanded[dk];
       let ttLines = '';
       if(expanded){
-        const periods = getPeriodsForDate(d).filter(p=> ['moved','swap','event','other'].includes(p.status));
+        // "시간표 보이기"를 누르면 이동/삭제/행사뿐 아니라 평소 수업까지, 그 날의 시간표 전체를 다 보여줘요.
+        const periods = getPeriodsForDate(d);
+        if(!periods.length){
+          ttLines += `<div style="font-size:12px;color:#9CA3AF;">이 날은 시간표상 수업이 없어요.</div>`;
+        }
         periods.forEach(p=>{
           let label='';
-          if(p.status==='moved') label = p.movedTo ? `${p.period}교시 ${p.cls||''} → ${fmtShort(p.movedTo.date)} ${p.movedTo.period}교시로 이동` : `${p.period}교시 ${p.cls||''} 삭제됨`;
-          else if(p.status==='swap') label = p.movedFrom ? `${p.period}교시 ${p.cls} (이동해옴: ${fmtShort(p.movedFrom.date)} ${p.movedFrom.period}교시)` : `${p.period}교시 ${p.cls} (추가된 수업)`;
-          else label = `${p.period}교시 ${p.status==='event'?'행사':'기타 활동'}${p.cls? ' · '+p.cls : ''}${p.overrideMemo? ' - '+p.overrideMemo : ''}`;
+          if(p.status==='holiday'){
+            label = `${p.holidayType||'학사일정'}${p.holidayMemo? ' - '+p.holidayMemo : ''}`;
+          } else if(p.status==='moved'){
+            label = p.movedTo ? `${p.period}교시 ${p.cls||''} → ${fmtShort(p.movedTo.date)} ${p.movedTo.period}교시로 이동` : `${p.period}교시 ${p.cls||''} 삭제됨`;
+          } else if(p.status==='swap'){
+            label = p.movedFrom ? `${p.period}교시 ${p.cls} (이동해옴: ${fmtShort(p.movedFrom.date)} ${p.movedFrom.period}교시)` : `${p.period}교시 ${p.cls} (추가된 수업)`;
+            label += p.progressEntry ? ' · 기록완료' : ' · 미기록';
+          } else if(p.status==='event' || p.status==='other'){
+            label = `${p.period}교시 ${p.status==='event'?'행사':'기타 활동'}${p.cls? ' · '+p.cls : ''}${p.overrideMemo? ' - '+p.overrideMemo : ''}`;
+          } else if(p.status==='recorded'){
+            label = `${p.period}교시 ${p.cls} · 기록완료`;
+          } else {
+            label = `${p.period}교시 ${p.cls} · 미기록`;
+          }
           ttLines += `<div style="font-size:12px;color:#374151;">${label}</div>`;
         });
       }
