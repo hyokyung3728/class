@@ -46,7 +46,9 @@
   #pinGate{position:fixed;inset:0;background:var(--gray-bg);display:none;align-items:center;justify-content:center;z-index:200;padding:20px;}
   .pin-box{background:#fff;border:1px solid var(--gray-border);border-radius:16px;padding:28px 24px;width:100%;max-width:320px;text-align:center;}
   .pin-box input{width:100%;box-sizing:border-box;font-size:20px;letter-spacing:8px;text-align:center;padding:12px;border:1px solid var(--gray-border);border-radius:10px;margin-top:12px;}
+  .pin-box input.login-field{font-size:14px;letter-spacing:normal;text-align:left;}
   .pin-box button{width:100%;margin-top:14px;background:var(--blue);color:#fff;border:none;border-radius:10px;padding:12px;font-size:14px;font-weight:700;}
+  .pin-box .link-btn-sm{width:auto;background:none;color:var(--blue);border:none;font-size:12px;font-weight:600;padding:8px 4px 0;margin-top:6px;}
 
   /* ---------- 전체 앱 셸 ---------- */
   #app{display:none;flex-direction:column;height:100%;height:100dvh;height:calc(var(--app-vh, 1vh) * 100);max-width:520px;width:100%;margin:0 auto;background:var(--gray-bg);position:relative;padding-top:calc(env(safe-area-inset-top) + 14px);box-sizing:border-box;}
@@ -189,6 +191,19 @@
 </style>
 </head>
 <body>
+
+<!-- ================= 로그인 화면 (이메일+비밀번호, 새 기기에서 처음 열 때만) ================= -->
+<div id="loginGate" style="position:fixed;inset:0;background:var(--gray-bg);display:none;align-items:center;justify-content:center;z-index:210;padding:20px;">
+  <div class="pin-box">
+    <div style="font-size:15px;font-weight:700;">로그인</div>
+    <div style="font-size:11.5px;color:var(--gray-faint);margin-top:4px;">이 기기는 처음 열어요. 계정으로 로그인해주세요. (이후엔 PIN으로 빠르게 열 수 있어요)</div>
+    <input id="loginEmail" class="login-field" type="email" placeholder="이메일" autocomplete="username" style="margin-top:14px;">
+    <input id="loginPw" class="login-field" type="password" placeholder="비밀번호" autocomplete="current-password" onkeydown="if(event.key==='Enter') submitLogin();">
+    <div id="loginMsg" style="font-size:11.5px;margin-top:8px;display:none;"></div>
+    <button onclick="submitLogin()">로그인</button>
+    <button class="link-btn-sm" onclick="sendPasswordReset()">비밀번호를 잊으셨나요?</button>
+  </div>
+</div>
 
 <!-- ================= 잠금 화면 ================= -->
 <div id="pinGate">
@@ -334,7 +349,7 @@ window.addEventListener('pageshow', forceViewportRecalc);
 // ⚠️ 아래 주소를 본인의 Firebase Realtime Database 주소로 바꿔주세요.
 // (Firebase 콘솔 > Realtime Database 에서 확인할 수 있어요. 칼각매치 만들 때 쓰신 방식과 동일해요.)
 const FIREBASE_DB_URL = "https://class-calendar-85548-default-rtdb.asia-southeast1.firebasedatabase.app";
-// 익명 인증용 Web API Key (파이어베이스 콘솔 > 프로젝트 설정 > 일반 > 내 앱에서 확인)
+// 계정 로그인(이메일+비밀번호)용 Web API Key (파이어베이스 콘솔 > 프로젝트 설정 > 일반 > 내 앱에서 확인)
 const FIREBASE_API_KEY = "AIzaSyClgMRSjsSEaCeqfBMMQpjjbdo6rC294so";
 
 const WEEKDAY_KR = ['일','월','화','수','목','금','토'];
@@ -375,59 +390,161 @@ function defaultTermId(){
 
 /* ---------------------- Firebase REST 헬퍼 ---------------------- */
 let AUTH_TOKEN = null;
-// 앱을 열 때마다 파이어베이스 익명 인증으로 로그인해서 토큰을 받아와요.
-// 이 토큰이 있어야 "로그인된 사람만 허용" 규칙을 통과해서 데이터를 읽고 쓸 수 있어요.
-async function ensureAuth(){
+const REFRESH_TOKEN_KEY = 'fbRefreshToken';
+
+/* ---- 계정 로그인 (이메일+비밀번호) ----
+   기기마다 딱 한 번만 이메일+비밀번호로 로그인하면, 그 기기엔 refresh token을
+   저장해두고 다음부터는 조용히 자동 로그인해요. 그 뒤로는 기존처럼 PIN으로 빠르게 잠금 해제만 하면 돼요. */
+function showLoginGate(msg, type){
+  document.getElementById('loginGate').style.display='flex';
+  const el = document.getElementById('loginMsg');
+  if(msg){
+    el.textContent = msg;
+    el.style.color = type==='ok' ? '#059669' : '#B91C1C';
+    el.style.display='block';
+  } else {
+    el.style.display='none';
+  }
+  setTimeout(()=>{ const inp=document.getElementById('loginEmail'); if(inp && !inp.value) inp.focus(); }, 0);
+}
+function hideLoginGate(){
+  document.getElementById('loginGate').style.display='none';
+}
+async function signInWithPassword(email, password){
   try{
-    const res = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signUp?key=${FIREBASE_API_KEY}`, {
+    const res = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=${FIREBASE_API_KEY}`, {
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({returnSecureToken:true})
+      body: JSON.stringify({email, password, returnSecureToken:true})
+    });
+    const data = await res.json();
+    if(!res.ok){
+      const msg = (data && data.error && data.error.message) || '';
+      let friendly = '로그인에 실패했어요. 다시 시도해주세요.';
+      if(/INVALID_PASSWORD|EMAIL_NOT_FOUND|INVALID_LOGIN_CREDENTIALS/.test(msg)) friendly = '이메일 또는 비밀번호가 올바르지 않아요.';
+      else if(/USER_DISABLED/.test(msg)) friendly = '이 계정은 사용이 중지되어 있어요.';
+      else if(/TOO_MANY_ATTEMPTS_TRY_LATER/.test(msg)) friendly = '시도가 너무 많아요. 잠시 후 다시 시도해주세요.';
+      else if(/OPERATION_NOT_ALLOWED/.test(msg)) friendly = '이메일/비밀번호 로그인이 아직 켜져있지 않아요. 파이어베이스 콘솔에서 먼저 사용 설정해주세요.';
+      return { ok:false, error: friendly };
+    }
+    AUTH_TOKEN = data.idToken;
+    localStorage.setItem(REFRESH_TOKEN_KEY, data.refreshToken);
+    return { ok:true };
+  }catch(e){
+    return { ok:false, error:'로그인에 실패했어요 · 인터넷 연결을 확인해주세요.' };
+  }
+}
+async function refreshIdToken(){
+  const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
+  if(!refreshToken) return false;
+  try{
+    const res = await fetch(`https://securetoken.googleapis.com/v1/token?key=${FIREBASE_API_KEY}`, {
+      method:'POST',
+      headers:{'Content-Type':'application/x-www-form-urlencoded'},
+      body: `grant_type=refresh_token&refresh_token=${encodeURIComponent(refreshToken)}`
     });
     if(!res.ok) throw new Error(res.status);
     const data = await res.json();
-    AUTH_TOKEN = data.idToken;
+    AUTH_TOKEN = data.id_token;
+    if(data.refresh_token) localStorage.setItem(REFRESH_TOKEN_KEY, data.refresh_token);
+    return true;
   }catch(e){
-    console.error('익명 인증 실패', e);
-    toast('인증 실패 · 새로고침해서 다시 시도해주세요','error');
+    localStorage.removeItem(REFRESH_TOKEN_KEY);
+    return false;
   }
 }
+async function submitLogin(){
+  const email = document.getElementById('loginEmail').value.trim();
+  const pw = document.getElementById('loginPw').value;
+  if(!email || !pw){ showLoginGate('이메일과 비밀번호를 모두 입력해주세요.'); return; }
+  const result = await signInWithPassword(email, pw);
+  document.getElementById('loginPw').value='';
+  if(result.ok){
+    hideLoginGate();
+    checkPinGate();
+  } else {
+    showLoginGate(result.error);
+    document.getElementById('loginPw').focus();
+  }
+}
+async function sendPasswordReset(){
+  const email = document.getElementById('loginEmail').value.trim();
+  if(!email){ showLoginGate('비밀번호를 재설정하려면 먼저 이메일을 입력해주세요.'); return; }
+  try{
+    const res = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=${FIREBASE_API_KEY}`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({requestType:'PASSWORD_RESET', email})
+    });
+    if(!res.ok) throw new Error(res.status);
+    showLoginGate('비밀번호 재설정 메일을 보냈어요. 메일함을 확인해주세요.', 'ok');
+  }catch(e){
+    showLoginGate('메일 발송에 실패했어요. 이메일 주소를 확인해주세요.');
+  }
+}
+// 앱을 열 때마다 실행돼요. 이 기기에 저장된 refresh token이 있으면 조용히 자동 로그인을 시도하고,
+// 없거나 실패하면 로그인 화면을 보여줘요. 로그인(또는 자동 로그인)에 성공한 뒤에만 기존 PIN 화면으로 넘어가요.
+async function initAuthFlow(){
+  const hasRefresh = !!localStorage.getItem(REFRESH_TOKEN_KEY);
+  if(hasRefresh){
+    const ok = await refreshIdToken();
+    if(ok){ checkPinGate(); return; }
+  }
+  showLoginGate();
+}
+
 function dbPath(p){
   const authParam = AUTH_TOKEN ? `?auth=${AUTH_TOKEN}` : '';
   return `${FIREBASE_DB_URL}/${p}.json${authParam}`;
 }
+async function isPermissionDenied(res){
+  try{ const text = await res.text(); return res.status===401 || /permission denied/i.test(text); }
+  catch(e){ return false; }
+}
 async function dbGet(p){
-  try{
-    const res = await fetch(dbPath(p));
-    if(!res.ok) throw new Error(res.status);
-    return await res.json();
-  }catch(e){
-    toast('불러오기 실패 · 인터넷 연결을 확인해주세요','error');
+  let res;
+  try{ res = await fetch(dbPath(p)); }
+  catch(e){ toast('불러오기 실패 · 인터넷 연결을 확인해주세요','error'); return null; }
+  if(!res.ok){
+    const denied = await isPermissionDenied(res);
+    toast(denied ? '접근 권한이 없어요' : '불러오기 실패 · 인터넷 연결을 확인해주세요','error');
     return null;
   }
+  return await res.json();
 }
 async function dbSet(p,data){
-  try{
-    const res = await fetch(dbPath(p),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
-    if(!res.ok) throw new Error(res.status);
-    toast('저장됨','ok');
-    return await res.json();
-  }catch(e){ toast('저장 실패 · 다시 시도해주세요','error'); throw e; }
+  let res;
+  try{ res = await fetch(dbPath(p),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}); }
+  catch(e){ toast('저장 실패 · 다시 시도해주세요','error'); throw e; }
+  if(!res.ok){
+    const denied = await isPermissionDenied(res);
+    toast(denied ? '접근 권한이 없어요' : '저장 실패 · 다시 시도해주세요','error');
+    throw new Error(res.status);
+  }
+  toast('저장됨','ok');
+  return await res.json();
 }
 async function dbPush(p,data){
-  try{
-    const res = await fetch(dbPath(p),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
-    if(!res.ok) throw new Error(res.status);
-    toast('저장됨','ok');
-    return await res.json();
-  }catch(e){ toast('저장 실패 · 다시 시도해주세요','error'); throw e; }
+  let res;
+  try{ res = await fetch(dbPath(p),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}); }
+  catch(e){ toast('저장 실패 · 다시 시도해주세요','error'); throw e; }
+  if(!res.ok){
+    const denied = await isPermissionDenied(res);
+    toast(denied ? '접근 권한이 없어요' : '저장 실패 · 다시 시도해주세요','error');
+    throw new Error(res.status);
+  }
+  toast('저장됨','ok');
+  return await res.json();
 }
 async function dbRemove(p){
-  try{
-    const res = await fetch(dbPath(p),{method:'DELETE'});
-    if(!res.ok) throw new Error(res.status);
-    toast('삭제됨','ok');
-  }catch(e){ toast('삭제 실패 · 다시 시도해주세요','error'); throw e; }
+  let res;
+  try{ res = await fetch(dbPath(p),{method:'DELETE'}); }
+  catch(e){ toast('삭제 실패 · 다시 시도해주세요','error'); throw e; }
+  if(!res.ok){
+    const denied = await isPermissionDenied(res);
+    toast(denied ? '접근 권한이 없어요' : '삭제 실패 · 다시 시도해주세요','error');
+    throw new Error(res.status);
+  }
+  toast('삭제됨','ok');
 }
 
 function toast(msg,type){
@@ -478,6 +595,15 @@ function resetPin(){
   if(confirm('잠금 번호를 초기화할까요? 다음에 열 때 새 번호를 설정하게 돼요.')){
     localStorage.removeItem('appPin');
     toast('잠금 번호가 초기화됐어요','ok');
+  }
+}
+// 이 기기의 로그인 상태를 완전히 지워요. 기기를 바꾸거나 잃어버렸을 때, 또는 그냥
+// 이 기기에서 로그아웃하고 싶을 때 눌러주세요. 다음에 열면 이메일+비밀번호 로그인부터 다시 해야 해요.
+function logoutDevice(){
+  if(confirm('이 기기에서 로그아웃할까요? 다음에 열 때 이메일과 비밀번호로 다시 로그인해야 해요.')){
+    localStorage.removeItem(REFRESH_TOKEN_KEY);
+    localStorage.removeItem('appPin');
+    location.reload();
   }
 }
 function unlockApp(){
@@ -547,11 +673,12 @@ async function removePeriodZeroEverywhere(){
 }
 
 async function bootApp(){
-  await ensureAuth();
   await loadAllData();
   renderCalendar();
   renderQuickBanner();
   setInterval(renderQuickBanner, 60000);
+  // 로그인 토큰은 1시간 정도만 유효해서, 만료되기 전에 미리 조용히 갱신해둬요.
+  setInterval(refreshIdToken, 50*60*1000);
 }
 
 /* ---------------------- 화면 전환 ---------------------- */
@@ -1528,6 +1655,7 @@ function renderSettingsScreen(){
     <div class="settings-section">
       <div class="sst">보안</div>
       <button class="btn danger-ghost full" onclick="resetPin()">잠금 번호 초기화</button>
+      <button class="btn danger-ghost full" style="margin-top:8px;" onclick="logoutDevice()">이 기기 로그아웃</button>
     </div>
   `;
 }
@@ -1775,7 +1903,7 @@ async function applyRoster(){
 }
 
 /* ---------------------- 시작 ---------------------- */
-window.addEventListener('DOMContentLoaded', checkPinGate);
+window.addEventListener('DOMContentLoaded', initAuthFlow);
 </script>
 </body>
 </html>
