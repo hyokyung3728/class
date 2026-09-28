@@ -83,7 +83,7 @@
   .day-cell.today .dnum{color:var(--blue-dark);font-weight:700;}
   .day-cell .dots{display:flex;gap:2px;margin-top:4px;}
   .dot{width:5px;height:5px;border-radius:50%;}
-  .dot.blue{background:var(--blue);} .dot.orange{background:var(--orange);} .dot.gray{background:var(--gray-faint);}
+  .dot.blue{background:var(--blue);} .dot.orange{background:var(--orange);} .dot.gray{background:var(--gray-faint);} .dot.purple{background:#7C3AED;}
 
   /* ---------- 하단 탭바 ---------- */
   #tabbar{flex-shrink:0;display:flex;align-items:center;border-top:1px solid var(--gray-border);background:#fff;padding:6px 8px calc(8px + env(safe-area-inset-bottom));}
@@ -824,18 +824,24 @@ function renderCalendar(){
     const acEntry = Object.values(STATE.academicCalendar).find(e=> dk>=e.start && dk<=e.end);
     let dots='';
     let holidayClass='';
+    const dotSpans=[];
     if(isBlockingAcEntry(acEntry)){
       // 공휴일·시험기간·방학·행사(진도미포함)은 그날 수업이 있는지 여부와 상관없이 항상 표시돼요
       holidayClass='holiday-cell';
-      dots = `<div class="dots"><span class="dot gray"></span></div>`;
+      dotSpans.push('<span class="dot gray"></span>');
     } else {
       // 학사일정이 없거나 행사(진도포함)인 날은 실제 수업처럼 기록완료/미기록으로 표시돼요
       const periods = getPeriodsForDate(cellDate);
       if(periods.length){
         const hasUnrecorded = periods.some(p=>p.status==='unrecorded' || (p.status==='swap' && !p.progressEntry));
-        dots = `<div class="dots"><span class="dot ${hasUnrecorded?'orange':'blue'}"></span></div>`;
+        dotSpans.push(`<span class="dot ${hasUnrecorded?'orange':'blue'}"></span>`);
       }
     }
+    // 그날 등록된 개인 일정이 있으면 보라색 점을 하나 더 표시해요
+    if(Object.keys(STATE.personalEvents[dk]||{}).length){
+      dotSpans.push('<span class="dot purple"></span>');
+    }
+    if(dotSpans.length) dots = `<div class="dots">${dotSpans.join('')}</div>`;
     html += `<button class="day-cell ${isToday?'today':''} ${holidayClass}" onclick="openDayDetail('${dk}')">
       <div class="dnum">${dayNum}</div>${dots}
     </button>`;
@@ -1038,6 +1044,7 @@ function renderDayDetail(){
         <div class="badge" style="color:${'#7C3AED'};background:${'#F3E8FF'};">${ev.time||''}</div>
         ${catHtml}
         <div style="flex:1;font-size:12.5px;">${ev.text}</div>
+        <button class="iconbtn" onclick="openPersonalEventModal('${id}')">✎</button>
         <button class="iconbtn" onclick="deletePersonalEvent('${id}')">✕</button>
       </div>
       ${linkHtml}${attach}
@@ -1072,6 +1079,7 @@ async function deletePersonalEvent(id){
   await dbRemove(`personalEvents/${STATE.termId}/${dk}/${id}`);
   if(STATE.personalEvents[dk]) delete STATE.personalEvents[dk][id];
   renderDayDetail();
+  renderCalendar();
 }
 
 /* ---------------------- 모달: 진도 입력 ---------------------- */
@@ -1335,17 +1343,25 @@ async function clearDayOverride(){
 }
 
 /* ---------------------- 모달: 개인 일정 ---------------------- */
-function openPersonalEventModal(){
+function openPersonalEventModal(id){
+  const dk = STATE.selectedDateKey;
+  const existing = id ? (STATE.personalEvents[dk]||{})[id] : null;
+  const esc = (s)=> (s||'').replace(/"/g,'&quot;');
+  const existingFileNote = existing && existing.fileData ? `<div style="font-size:11px;color:#6B7280;margin-top:-6px;">현재 첨부: ${esc(existing.fileName)||'파일'} (새 파일을 선택하면 교체돼요)</div>` : '';
   document.getElementById('modalBody').innerHTML = `
-    <div class="modal-title"><span>개인 일정 추가</span><button onclick="closeModal()">✕</button></div>
+    <div class="modal-title"><span>${existing?'개인 일정 수정':'개인 일정 추가'}</span><button onclick="closeModal()">✕</button></div>
     <div class="field"><label>구분</label>
-      <select id="pe_category"><option value="업무">업무</option><option value="개인">개인</option></select></div>
-    <div class="field"><label>시각</label><input id="pe_time" type="time" value="15:00"></div>
-    <div class="field"><label>내용</label><input id="pe_text" placeholder="예: 학부모 상담"></div>
-    <div class="field"><label>링크 (선택)</label><input id="pe_link" type="url" placeholder="예: https://..."></div>
+      <select id="pe_category">
+        <option value="업무" ${existing && existing.category==='업무' ? 'selected':''}>업무</option>
+        <option value="개인" ${existing && existing.category==='개인' ? 'selected':''}>개인</option>
+      </select></div>
+    <div class="field"><label>시각</label><input id="pe_time" type="time" value="${existing ? esc(existing.time||'15:00') : '15:00'}"></div>
+    <div class="field"><label>내용</label><input id="pe_text" placeholder="예: 학부모 상담" value="${esc(existing && existing.text)}"></div>
+    <div class="field"><label>링크 (선택)</label><input id="pe_link" type="url" placeholder="예: https://..." value="${esc(existing && existing.link)}"></div>
     <div class="field"><label>파일 첨부 (선택, 이미지·문서)</label><input id="pe_file" type="file" accept="image/*,.pdf,.doc,.docx,.hwp,.ppt,.pptx,.xls,.xlsx,.txt"></div>
+    ${existingFileNote}
     <div style="font-size:11px;color:#9CA3AF;margin-top:-6px;">이미지는 자동으로 용량을 줄여서 저장돼요. 문서 파일은 2MB 이하로 올려주세요.</div>
-    <button class="btn primary full" onclick="savePersonalEvent()">저장</button>
+    <button class="btn primary full" onclick="savePersonalEvent('${id||''}')">저장</button>
   `;
   document.getElementById('modalOverlay').classList.add('open');
 }
@@ -1380,7 +1396,9 @@ function compressImageFile(file, maxDim=1280, quality=0.72){
     reader.readAsDataURL(file);
   });
 }
-async function savePersonalEvent(){
+async function savePersonalEvent(id){
+  const dk = STATE.selectedDateKey;
+  const existing = id ? (STATE.personalEvents[dk]||{})[id] : null;
   const category = document.getElementById('pe_category').value;
   const time = document.getElementById('pe_time').value;
   const text = document.getElementById('pe_text').value.trim();
@@ -1406,12 +1424,21 @@ async function savePersonalEvent(){
       alert('파일을 읽는 중 문제가 생겼어요. 다시 시도해주세요.');
       return;
     }
+  } else if(existing && existing.fileData){
+    // 새 파일을 고르지 않았으면 기존에 첨부돼 있던 파일을 그대로 유지해요
+    data.fileData = existing.fileData;
+    data.fileName = existing.fileName;
+    data.fileType = existing.fileType;
   }
-  const dk = STATE.selectedDateKey;
-  const res = await dbPush(`personalEvents/${STATE.termId}/${dk}`, data);
-  STATE.personalEvents[dk]=STATE.personalEvents[dk]||{};
-  STATE.personalEvents[dk][res.name]=data;
-  closeModal(); renderDayDetail();
+  STATE.personalEvents[dk] = STATE.personalEvents[dk]||{};
+  if(id){
+    await dbSet(`personalEvents/${STATE.termId}/${dk}/${id}`, data);
+    STATE.personalEvents[dk][id] = data;
+  } else {
+    const res = await dbPush(`personalEvents/${STATE.termId}/${dk}`, data);
+    STATE.personalEvents[dk][res.name] = data;
+  }
+  closeModal(); renderDayDetail(); renderCalendar();
 }
 
 /* ---------------------- 모달: 학생 기록 추가 ---------------------- */
