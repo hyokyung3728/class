@@ -898,7 +898,6 @@ function toggleAgendaTimetable(dk){
 function renderAgendaList(){
   const start = parseDateKey(todayKey());
   let html = '';
-  let shown = 0;
   for(let i=0; i<STATE.agendaDaysLoaded; i++){
     const d = new Date(start.getFullYear(), start.getMonth(), start.getDate()+i);
     const dk = dateKey(d);
@@ -906,8 +905,7 @@ function renderAgendaList(){
     const overridesForDay = STATE.periodOverrides[dk] || {};
     const hasOverride = Object.keys(overridesForDay).length>0;
     const events = Object.entries(STATE.personalEvents[dk]||{}).map(([id,v])=>({...v,id}));
-    if(!acEntry && !hasOverride && !events.length) continue;
-    shown++;
+    const hasContent = !!acEntry || events.length>0;
     const weekdayKr = WEEKDAY_KR[d.getDay()];
     let infoLines = '';
     if(acEntry){
@@ -918,47 +916,44 @@ function renderAgendaList(){
       const bg = ev.category==='업무' ? '#EFF6FF' : '#DCFCE7';
       infoLines += `<div style="font-size:12px;display:flex;gap:6px;align-items:center;"><span class="badge" style="color:${color};background:${bg};">${ev.category||''}</span> ${ev.time||''} ${ev.text}</div>`;
     });
-    let timetableHtml = '';
-    if(hasOverride){
-      const expanded = !!STATE.agendaExpanded[dk];
-      let ttLines = '';
-      if(expanded){
-        // "시간표 보이기"를 누르면 이동/삭제/행사뿐 아니라 평소 수업까지, 그 날의 시간표 전체를 다 보여줘요.
-        const periods = getPeriodsForDate(d);
-        if(!periods.length){
-          ttLines += `<div style="font-size:12px;color:#9CA3AF;">이 날은 시간표상 수업이 없어요.</div>`;
-        }
-        periods.forEach(p=>{
-          let label='';
-          if(p.status==='holiday'){
-            label = `${p.holidayType||'학사일정'}${p.holidayMemo? ' - '+p.holidayMemo : ''}`;
-          } else if(p.status==='moved'){
-            label = p.movedTo ? `${p.period}교시 ${p.cls||''} → ${fmtShort(p.movedTo.date)} ${p.movedTo.period}교시로 이동` : `${p.period}교시 ${p.cls||''} 삭제됨`;
-          } else if(p.status==='swap'){
-            label = p.movedFrom ? `${p.period}교시 ${p.cls} (이동해옴: ${fmtShort(p.movedFrom.date)} ${p.movedFrom.period}교시)` : `${p.period}교시 ${p.cls} (추가된 수업)`;
-            label += p.progressEntry ? ' · 기록완료' : ' · 미기록';
-          } else if(p.status==='event' || p.status==='other'){
-            label = `${p.period}교시 ${p.status==='event'?'행사':'기타 활동'}${p.cls? ' · '+p.cls : ''}${p.overrideMemo? ' - '+p.overrideMemo : ''}`;
-          } else if(p.status==='recorded'){
-            label = `${p.period}교시 ${p.cls} · 기록완료`;
-          } else {
-            label = `${p.period}교시 ${p.cls} · 미기록`;
-          }
-          ttLines += `<div style="font-size:12px;color:#374151;">${label}</div>`;
-        });
+    // 날짜마다 "시간표 보이기"를 눌러야 그 날의 전체 교시가 펼쳐져요. 평소엔 접혀 있어서 훑어보기 편해요.
+    const expanded = !!STATE.agendaExpanded[dk];
+    let ttLines = '';
+    if(expanded){
+      const periods = getPeriodsForDate(d);
+      if(!periods.length){
+        ttLines += `<div style="font-size:12px;color:#9CA3AF;">이 날은 시간표상 수업이 없어요.</div>`;
       }
-      timetableHtml = `<div>
-        <button class="link-btn" style="margin:2px 0 0;" onclick="toggleAgendaTimetable('${dk}')">${expanded?'시간표 숨기기':'시간표 보이기'}</button>
-        ${expanded ? `<div style="margin-top:2px;display:flex;flex-direction:column;gap:2px;">${ttLines}</div>` : ''}
-      </div>`;
+      periods.forEach(p=>{
+        let label='';
+        if(p.status==='holiday'){
+          label = `${p.holidayType||'학사일정'}${p.holidayMemo? ' - '+p.holidayMemo : ''}`;
+        } else if(p.status==='moved'){
+          label = p.movedTo ? `${p.period}교시 ${p.cls||''} → ${fmtShort(p.movedTo.date)} ${p.movedTo.period}교시로 이동` : `${p.period}교시 ${p.cls||''} 삭제됨`;
+        } else if(p.status==='swap'){
+          label = p.movedFrom ? `${p.period}교시 ${p.cls} (이동해옴: ${fmtShort(p.movedFrom.date)} ${p.movedFrom.period}교시)` : `${p.period}교시 ${p.cls} (추가된 수업)`;
+          label += p.progressEntry ? ' · 기록완료' : ' · 미기록';
+        } else if(p.status==='event' || p.status==='other'){
+          label = `${p.period}교시 ${p.status==='event'?'행사':'기타 활동'}${p.cls? ' · '+p.cls : ''}${p.overrideMemo? ' - '+p.overrideMemo : ''}`;
+        } else if(p.status==='recorded'){
+          label = `${p.period}교시 ${p.cls} · 기록완료`;
+        } else {
+          label = `${p.period}교시 ${p.cls} · 미기록`;
+        }
+        ttLines += `<div style="font-size:12px;color:#374151;">${label}</div>`;
+      });
     }
-    html += `<div class="card" style="display:flex;flex-direction:column;gap:4px;">
-      <div style="font-size:12.5px;font-weight:700;cursor:pointer;" onclick="openDayDetail('${dk}')">${d.getMonth()+1}/${d.getDate()} (${weekdayKr})</div>
+    const timetableHtml = `<div>
+      <button class="link-btn" style="margin:2px 0 0;" onclick="toggleAgendaTimetable('${dk}')">${expanded?'시간표 숨기기':'시간표 보이기'}${hasOverride?' (변경 있음)':''}</button>
+      ${expanded ? `<div style="margin-top:2px;display:flex;flex-direction:column;gap:2px;">${ttLines}</div>` : ''}
+    </div>`;
+    // 아무 일정도 없는 평범한 날은 한 줄로 얇게, 뭔가 있는 날은 카드로 도톰하게 보여서 훑어보기 쉽게 했어요.
+    html += `<div class="card" style="display:flex;flex-direction:column;gap:4px;${hasContent?'':'padding:8px 14px;'}">
+      <div style="font-size:12.5px;font-weight:700;cursor:pointer;${hasContent?'':'color:#6B7280;font-weight:600;'}" onclick="openDayDetail('${dk}')">${d.getMonth()+1}/${d.getDate()} (${weekdayKr})</div>
       ${infoLines}
       ${timetableHtml}
     </div>`;
   }
-  if(!shown) html = `<div class="empty-hint">앞으로 ${STATE.agendaDaysLoaded}일 안에 학사일정·시간표 변경·업무/개인 일정이 없어요.</div>`;
   document.getElementById('agendaList').innerHTML = html;
 }
 
