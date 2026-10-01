@@ -215,6 +215,7 @@ select, input[type=text], input[type=number] { width: 100%; min-height: 42px; bo
 .toast { position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 10px 18px; border-radius: 999px; font-weight: 600; z-index: 60; max-width: calc(100% - 32px); text-align: center; }
 .donecard { display: grid; place-items: center; gap: 14px; text-align: center; padding: 60px 16px; }
 .donecard .seal { font-family: var(--f-display); font-size: 30px; font-weight: 700; color: var(--stamp); border: 3px solid var(--stamp); border-radius: 50%; width: 120px; height: 120px; display: grid; place-items: center; transform: rotate(-10deg); }
+.credit { margin-top: 32px; padding-top: 14px; border-top: 1px solid var(--line); text-align: center; font-size: 12px; color: var(--muted); letter-spacing: .02em; }
 .donecard .t { font-size: 22px; font-weight: 700; }
 /* ---------- file tabs & structure ---------- */
 .tabs { display: flex; gap: 8px; flex-wrap: wrap; align-items: stretch; margin-bottom: 14px; }
@@ -320,6 +321,7 @@ textarea { width: 100%; min-height: 84px; border: 1px solid var(--line); border-
       </ol>
     </div>
   </div>
+  <footer class="credit">ⓒ 2026 김효경 │ 교사 업무 지원 도구 · v2026.10</footer>
 </main>
 
 <!-- ================= SETUP ================= -->
@@ -389,6 +391,7 @@ textarea { width: 100%; min-height: 84px; border: 1px solid var(--line); border-
     <button id="btn-export" class="btn">엑셀 저장</button>
     <button id="btn-kiosk" class="btn primary">확인 받기 시작</button>
   </div></div>
+  <footer class="credit">ⓒ 2026 김효경 │ 교사 업무 지원 도구 · v2026.10</footer>
 </main>
 
 <!-- ================= KIOSK ================= -->
