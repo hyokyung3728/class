@@ -158,6 +158,20 @@
   .field label{font-size:11.5px;color:var(--gray-text);font-weight:600;display:block;margin-bottom:4px;}
   .field input, .field select, .field textarea{width:100%;box-sizing:border-box;font-size:13px;padding:9px 10px;border:1px solid var(--gray-border);border-radius:8px;background:#fff;}
   .field textarea{resize:vertical;min-height:56px;}
+  .check-row{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--ink);font-weight:600;margin:2px 0 10px;}
+  .check-row input{width:auto;}
+  .richtext-toolbar{display:flex;gap:4px;margin-bottom:5px;}
+  .rt-btn{border:1px solid var(--gray-border);background:#fff;border-radius:6px;width:30px;height:28px;font-size:13px;color:var(--ink);font-family:inherit;}
+  .richtext-input{width:100%;box-sizing:border-box;font-size:13px;padding:9px 10px;border:1px solid var(--gray-border);border-radius:8px;background:#fff;min-height:64px;max-height:220px;overflow-y:auto;}
+  .richtext-input:empty::before{content:attr(data-placeholder);color:var(--gray-faint);}
+  .richtext-input ul{margin:4px 0;padding-left:18px;}
+  .date-summary-btn{width:100%;box-sizing:border-box;text-align:left;font-size:13px;padding:9px 10px;border:1px solid var(--gray-border);border-radius:8px;background:#fff;color:var(--ink);font-family:inherit;}
+  .chip{display:inline-flex;align-items:center;gap:4px;font-size:11.5px;background:var(--gray-bg);border:1px solid var(--gray-border);border-radius:999px;padding:4px 8px;}
+  .chip button{border:none;background:none;color:var(--gray-faint);font-size:11px;padding:0;margin-left:2px;font-family:inherit;}
+  .today-events{margin:0 0 10px;padding:12px 14px;background:#fff;border:1px solid var(--gray-border);border-radius:12px;display:flex;flex-direction:column;gap:7px;}
+  .today-events .te-title{font-size:11px;color:var(--gray-text);font-weight:700;letter-spacing:.02em;}
+  .today-events .te-row{display:flex;gap:6px;align-items:center;font-size:12.5px;cursor:pointer;}
+  .today-events .te-row.soon{background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px;padding:4px 8px;margin:-4px -8px;}
   .upload-drop{border:1.5px dashed #C7CDD6;border-radius:12px;padding:20px;display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center;background:#fff;}
 
   /* ---------- 모달 ---------- */
@@ -233,6 +247,7 @@
         </div>
         <button onclick="goQuickRecord()">바로 기록</button>
       </div>
+      <div id="todayEventsBanner" style="display:none;"></div>
       <div class="weekday-row" id="weekdayRow"><div>일</div><div>월</div><div>화</div><div>수</div><div>목</div><div>금</div><div>토</div></div>
       <button class="link-btn" id="calViewToggleBtn" style="width:100%;text-align:right;" onclick="toggleCalendarView()">☰ 목록으로 보기</button>
     </div>
@@ -347,7 +362,9 @@ window.addEventListener('pageshow', forceViewportRecalc);
    /students/{termId}/{studentId}         : {class, number, name}
    /progress/{termId}/{반이름}/{entryId}   : {seq,date,period,material,startPoint,endPoint,unit,note,createdAt}
    /studentRecords/{termId}/{recordId}    : {studentId,studentName,class,date,tag,note,createdAt}
-   /personalEvents/{termId}/{dateKey}/{id} : {time,text}
+   /personalEvents/{termId}/{startDateKey}/{id} : {category,title,allDay,time,endTime,endDate,textHtml,link,fileData,fileName,fileType}
+     (startDateKey는 일정의 시작일. endDate가 있으면 그 날짜까지 여러 날에 걸친 일정이에요.
+      title은 노션처럼 별도의 제목 칸, textHtml은 그 아래 서식 있는 내용(선택). 옛 데이터는 title 없이 text 필드로만 저장돼 있을 수 있어요.)
    ========================================================================= */
 
 // ⚠️ 아래 주소를 본인의 Firebase Realtime Database 주소로 바꿔주세요.
@@ -390,6 +407,25 @@ function dateKey(d){ return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.g
 function parseDateKey(k){ const [y,m,d]=k.split('-').map(Number); return new Date(y,m-1,d); }
 function fmtShort(k){ const d=parseDateKey(k); return `${d.getMonth()+1}/${d.getDate()}`; }
 function todayKey(){ return dateKey(new Date()); }
+function escHtml(s){ return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+// 개인 일정은 시작일(personalEvents의 그룹 키) 아래에 저장되지만, endDate가 있으면 여러 날에 걸쳐요.
+// 특정 날짜(dk)에 해당하는 일정을 모두 찾을 때는 이 함수를 써요. 반환된 각 일정에는
+// 그 일정이 실제로 저장된 시작일이 ev.startDate로 함께 들어있어서, 수정·삭제 시 경로를 알 수 있어요.
+// 개인 일정의 짧은 표시용 라벨(제목). 새 형식은 title, 옛 형식은 text/textHtml에서 뽑아내요. 항상 이스케이프된 텍스트예요.
+function eventLabel(ev){
+  const raw = ev.title || ev.text || (ev.textHtml ? ev.textHtml.replace(/<[^>]+>/g,'') : '') || '';
+  return escHtml(raw);
+}
+function getEventsForDate(dk){
+  const results = [];
+  Object.entries(STATE.personalEvents).forEach(([startDk, dayEvents])=>{
+    Object.entries(dayEvents||{}).forEach(([id,ev])=>{
+      const end = ev.endDate || startDk;
+      if(dk>=startDk && dk<=end) results.push({...ev, id, startDate:startDk});
+    });
+  });
+  return results;
+}
 function defaultTermId(){
   const now=new Date(); const y=now.getFullYear(); const m=now.getMonth()+1;
   return (m>=3 && m<=8) ? `${y}-1` : (m<3 ? `${y-1}-2` : `${y}-2`);
@@ -814,6 +850,7 @@ function findProgressEntry(cls, dk, period){
 }
 
 function renderCalendar(){
+  renderTodayEventsBanner();
   const d = STATE.currentMonthDate;
   document.getElementById('monthLabel').textContent = `${d.getFullYear()}년 ${d.getMonth()+1}월`;
   const first = new Date(d.getFullYear(), d.getMonth(), 1);
@@ -845,7 +882,7 @@ function renderCalendar(){
       }
     }
     // 그날 등록된 개인 일정이 있으면 구분(업무/개인)에 따라 점을 하나 더 표시해요
-    const dayEvents = Object.values(STATE.personalEvents[dk]||{});
+    const dayEvents = getEventsForDate(dk);
     if(dayEvents.some(ev=>ev.category==='업무')) dotSpans.push('<span class="dot purple"></span>');
     if(dayEvents.some(ev=>ev.category==='개인')) dotSpans.push('<span class="dot green"></span>');
     if(dotSpans.length) dots = `<div class="dots">${dotSpans.join('')}</div>`;
@@ -904,17 +941,23 @@ function renderAgendaList(){
     const acEntry = Object.values(STATE.academicCalendar).find(e=> dk>=e.start && dk<=e.end);
     const overridesForDay = STATE.periodOverrides[dk] || {};
     const hasOverride = Object.keys(overridesForDay).length>0;
-    const events = Object.entries(STATE.personalEvents[dk]||{}).map(([id,v])=>({...v,id}));
+    const events = getEventsForDate(dk);
     const hasContent = !!acEntry || events.length>0;
     const weekdayKr = WEEKDAY_KR[d.getDay()];
     let infoLines = '';
     if(acEntry){
       infoLines += `<div style="font-size:12px;color:#6B7280;">${acEntry.type?acEntry.type+' · ':''}${acEntry.memo||''}</div>`;
     }
-    events.sort((a,b)=>(a.time||'').localeCompare(b.time||'')).forEach(ev=>{
+    events.sort((a,b)=>{
+      if(a.allDay && !b.allDay) return -1;
+      if(!a.allDay && b.allDay) return 1;
+      return (a.time||'').localeCompare(b.time||'');
+    }).forEach(ev=>{
       const color = ev.category==='업무' ? '#2563EB' : '#16A34A';
       const bg = ev.category==='업무' ? '#EFF6FF' : '#DCFCE7';
-      infoLines += `<div style="font-size:12px;display:flex;gap:6px;align-items:center;"><span class="badge" style="color:${color};background:${bg};">${ev.category||''}</span> ${ev.time||''} ${ev.text}</div>`;
+      const timeLabel = ev.allDay ? '종일' : `${ev.time||''}${ev.endTime?'~'+ev.endTime:''}`;
+      const span = (ev.endDate && ev.endDate!==ev.startDate) ? ` <span style="color:#9CA3AF;">(${fmtShort(ev.startDate)}~${fmtShort(ev.endDate)})</span>` : '';
+      infoLines += `<div style="font-size:12px;display:flex;gap:6px;align-items:center;"><span class="badge" style="color:${color};background:${bg};">${ev.category||''}</span> ${timeLabel} ${eventLabel(ev)}${span}</div>`;
     });
     // 날짜마다 "시간표 보이기"를 눌러야 그 날의 전체 교시가 펼쳐져요. 평소엔 접혀 있어서 훑어보기 편해요.
     const expanded = !!STATE.agendaExpanded[dk];
@@ -991,6 +1034,39 @@ function renderQuickBanner(){
 }
 function goQuickRecord(){
   openDayDetail(todayKey());
+}
+
+// 진짜 푸시 알림 대신, 앱을 열었을 때 오늘 일정(과 곧 다가오는 일정)이 눈에 띄게 보이도록
+// 캘린더 화면 위쪽에 배너로 강조해줘요. 1시간 이내로 임박한 시간 일정은 노란색으로 더 강조돼요.
+function renderTodayEventsBanner(){
+  const wrap = document.getElementById('todayEventsBanner');
+  const dk = todayKey();
+  const events = getEventsForDate(dk);
+  if(!events.length){ wrap.style.display='none'; wrap.innerHTML=''; return; }
+  const nowMin = new Date().getHours()*60 + new Date().getMinutes();
+  events.sort((a,b)=>{
+    if(a.allDay && !b.allDay) return -1;
+    if(!a.allDay && b.allDay) return 1;
+    return (a.time||'').localeCompare(b.time||'');
+  });
+  const rows = events.map(ev=>{
+    const color = ev.category==='업무' ? '#2563EB' : '#16A34A';
+    const bg = ev.category==='업무' ? '#EFF6FF' : '#DCFCE7';
+    let soon = false;
+    if(!ev.allDay && ev.time){
+      const [h,m] = ev.time.split(':').map(Number);
+      const diff = (h*60+m) - nowMin;
+      if(diff>=0 && diff<=60) soon = true;
+    }
+    const timeLabel = ev.allDay ? '종일' : `${ev.time||''}${ev.endTime?'~'+ev.endTime:''}`;
+    return `<div class="te-row ${soon?'soon':''}" onclick="openDayDetail('${dk}')">
+      <span class="badge" style="color:${color};background:${bg};flex-shrink:0;">${ev.category||''}</span>
+      <span style="color:var(--gray-text);flex-shrink:0;">${timeLabel}</span>
+      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${eventLabel(ev)}</span>
+    </div>`;
+  }).join('');
+  wrap.innerHTML = `<div class="today-events"><div class="te-title">오늘 일정</div>${rows}</div>`;
+  wrap.style.display='block';
 }
 
 /* ======================================================================
@@ -1132,11 +1208,14 @@ function renderDayDetail(){
   }
 
   html += `<div class="section-label">개인 일정</div>`;
-  const events = STATE.personalEvents[dk] || {};
-  const ids = Object.keys(events);
-  if(!ids.length) html += `<div class="empty-hint">등록된 개인 일정이 없어요.</div>`;
-  ids.sort((a,b)=> (events[a].time||'').localeCompare(events[b].time||'')).forEach(id=>{
-    const ev=events[id];
+  const events = getEventsForDate(dk);
+  if(!events.length) html += `<div class="empty-hint">등록된 개인 일정이 없어요.</div>`;
+  events.sort((a,b)=>{
+    if(a.allDay && !b.allDay) return -1;
+    if(!a.allDay && b.allDay) return 1;
+    return (a.time||'').localeCompare(b.time||'');
+  }).forEach(ev=>{
+    const id = ev.id, sdk = ev.startDate;
     let attach = '';
     if(ev.fileData){
       if(ev.fileType==='image'){
@@ -1147,15 +1226,19 @@ function renderDayDetail(){
     }
     const linkHtml = ev.link ? `<a href="${ev.link}" target="_blank" rel="noopener" style="font-size:12px;color:var(--blue);display:inline-block;margin-top:4px;">🔗 링크 열기</a>` : '';
     const catHtml = ev.category ? `<div class="badge" style="color:${ev.category==='업무'?'#2563EB':'#16A34A'};background:${ev.category==='업무'?'#EFF6FF':'#DCFCE7'};">${ev.category}</div>` : '';
+    const timeLabel = ev.allDay ? '종일' : `${ev.time||''}${ev.endTime?'~'+ev.endTime:''}`;
+    const spanNote = (ev.endDate && ev.endDate!==ev.startDate) ? `<div style="font-size:11px;color:#9CA3AF;">${fmtShort(ev.startDate)} ~ ${fmtShort(ev.endDate)}</div>` : '';
+    // 제목은 굵게, 내용(있을 때만)은 그 아래에 별도 줄로 보여줘요.
+    const bodyHtml = ev.textHtml ? `<div style="font-size:12.5px;color:#374151;margin-top:2px;">${ev.textHtml}</div>` : '';
     html += `<div class="card" style="display:flex;flex-direction:column;gap:2px;">
       <div style="display:flex;gap:6px;align-items:center;">
-        <div class="badge" style="color:${'#7C3AED'};background:${'#F3E8FF'};">${ev.time||''}</div>
+        <div class="badge" style="color:${'#7C3AED'};background:${'#F3E8FF'};">${timeLabel}</div>
         ${catHtml}
-        <div style="flex:1;font-size:12.5px;">${ev.text}</div>
-        <button class="iconbtn" onclick="openPersonalEventModal('${id}')">✎</button>
-        <button class="iconbtn" onclick="deletePersonalEvent('${id}')">✕</button>
+        <div style="flex:1;font-size:12.5px;font-weight:700;">${eventLabel(ev)}</div>
+        <button class="iconbtn" onclick="openPersonalEventModal('${sdk}','${id}')">✎</button>
+        <button class="iconbtn" onclick="deletePersonalEvent('${sdk}','${id}')">✕</button>
       </div>
-      ${linkHtml}${attach}
+      ${bodyHtml}${spanNote}${linkHtml}${attach}
     </div>`;
   });
   html += `<button class="btn ghost full" onclick="openPersonalEventModal()">+ 개인 일정 추가</button>`;
@@ -1182,8 +1265,8 @@ async function clearOverride(period){
   renderCalendar();
 }
 
-async function deletePersonalEvent(id){
-  const dk = STATE.selectedDateKey;
+async function deletePersonalEvent(startDate, id){
+  const dk = startDate || STATE.selectedDateKey;
   await dbRemove(`personalEvents/${STATE.termId}/${dk}/${id}`);
   if(STATE.personalEvents[dk]) delete STATE.personalEvents[dk][id];
   renderDayDetail();
@@ -1450,28 +1533,134 @@ async function clearDayOverride(){
   closeModal(); renderDayDetail(); renderCalendar();
 }
 
-/* ---------------------- 모달: 개인 일정 ---------------------- */
-function openPersonalEventModal(id){
-  const dk = STATE.selectedDateKey;
+/* ---------------------- 모달: 개인 일정 (노션 스타일: 제목 → 날짜 → 구분 → 내용) ---------------------- */
+function togglePeEndField(){
+  document.getElementById('pe_endDateWrap').style.display = document.getElementById('pe_hasEnd').checked ? '' : 'none';
+  updatePeDateSummary();
+}
+function togglePeTimeField(){
+  document.getElementById('pe_timeWrap').style.display = document.getElementById('pe_hasTime').checked ? 'flex' : 'none';
+  updatePeDateSummary();
+}
+function peDateSummaryText(){
+  const start = document.getElementById('pe_startDate').value;
+  const hasEnd = document.getElementById('pe_hasEnd').checked;
+  const end = hasEnd ? document.getElementById('pe_endDate').value : '';
+  const hasTime = document.getElementById('pe_hasTime').checked;
+  const time = hasTime ? document.getElementById('pe_time').value : '';
+  const endTime = hasTime ? document.getElementById('pe_endTime').value : '';
+  const fmtFull = (k)=>{ if(!k) return ''; const d=parseDateKey(k); return `${d.getFullYear()}년 ${d.getMonth()+1}월 ${d.getDate()}일`; };
+  let s = fmtFull(start);
+  if(time) s += ` ${time}`;
+  if(end && end!==start){ s += ` → ${fmtFull(end)}`; if(endTime) s += ` ${endTime}`; }
+  else if(endTime){ s += `~${endTime}`; }
+  return s || '날짜를 선택하세요';
+}
+function updatePeDateSummary(){
+  const el = document.getElementById('pe_dateSummaryText');
+  if(el) el.textContent = peDateSummaryText();
+}
+// 노션처럼, 날짜 버튼을 누르면 종료일/시간 포함 토글이 있는 패널이 펼쳐지고, 접으면 요약 한 줄만 보여요.
+function togglePeDatePanel(){
+  const panel = document.getElementById('pe_datePanel');
+  const opening = panel.style.display === 'none';
+  panel.style.display = opening ? 'block' : 'none';
+  if(!opening) updatePeDateSummary();
+}
+function togglePeLinkRow(){
+  const row = document.getElementById('pe_linkRow');
+  const opening = row.style.display === 'none';
+  row.style.display = opening ? 'block' : 'none';
+  if(opening) document.getElementById('pe_link').focus();
+  else renderPeAttachChips();
+}
+function clearPeLink(){
+  document.getElementById('pe_link').value = '';
+  document.getElementById('pe_linkRow').style.display = 'none';
+  renderPeAttachChips();
+}
+function clearPeFile(){
+  const fileInput = document.getElementById('pe_file');
+  const wrap = document.getElementById('pe_attachChips');
+  if(fileInput.files[0]) fileInput.value = '';
+  else wrap.dataset.existingRemoved = 'true';
+  renderPeAttachChips();
+}
+// 링크·첨부파일을 툴바 버튼(🔗·📎)으로 넣고, 현재 붙어있는 링크/파일은 작은 칩으로 보여줘요. 칩의 ✕로 뗄 수 있어요.
+function renderPeAttachChips(){
+  const wrap = document.getElementById('pe_attachChips');
+  const link = document.getElementById('pe_link').value.trim();
+  const fileInput = document.getElementById('pe_file');
+  const chosenFile = fileInput.files[0];
+  const existingFileName = wrap.dataset.existingFileName || '';
+  const removed = wrap.dataset.existingRemoved === 'true';
+  let chips = '';
+  if(link){
+    const shown = link.length>28 ? link.slice(0,28)+'…' : link;
+    chips += `<span class="chip">🔗 ${escHtml(shown)}<button type="button" onclick="clearPeLink()">✕</button></span>`;
+  }
+  if(chosenFile){
+    chips += `<span class="chip">📎 ${escHtml(chosenFile.name)}<button type="button" onclick="clearPeFile()">✕</button></span>`;
+  } else if(existingFileName && !removed){
+    chips += `<span class="chip">📎 ${escHtml(existingFileName)}<button type="button" onclick="clearPeFile()">✕</button></span>`;
+  }
+  wrap.innerHTML = chips;
+}
+function openPersonalEventModal(startDate, id){
+  const dk = startDate || STATE.selectedDateKey;
   const existing = id ? (STATE.personalEvents[dk]||{})[id] : null;
   const esc = (s)=> (s||'').replace(/"/g,'&quot;');
-  const existingFileNote = existing && existing.fileData ? `<div style="font-size:11px;color:#6B7280;margin-top:-6px;">현재 첨부: ${esc(existing.fileName)||'파일'} (새 파일을 선택하면 교체돼요)</div>` : '';
+  const hasEnd = !!(existing && existing.endDate && existing.endDate!==dk);
+  // 시간 포함 여부: 기존 일정이면 allDay 값 기준(옛 데이터는 allDay 필드가 없어도 time이 있었으니 시간 포함으로 취급), 새 일정이면 기본으로 시간 포함 켜둬요.
+  const timeOn = existing ? !existing.allDay : true;
+  // 옛 데이터(제목 필드가 없던 시절)는 통째로 저장돼 있던 text/textHtml을 제목 칸으로 끌어올려서 보여줘요.
+  const legacyPlain = existing && !existing.title ? (existing.text || (existing.textHtml ? existing.textHtml.replace(/<[^>]+>/g,'').trim() : '')) : '';
+  const titleVal = existing ? (existing.title || legacyPlain) : '';
+  const existingContentHtml = existing && existing.title ? (existing.textHtml || '') : '';
   document.getElementById('modalBody').innerHTML = `
     <div class="modal-title"><span>${existing?'개인 일정 수정':'개인 일정 추가'}</span><button onclick="closeModal()">✕</button></div>
+    <div class="field"><label>제목</label><input id="pe_title" placeholder="제목을 입력하세요" value="${esc(titleVal)}"></div>
+    <div class="field"><label>날짜</label>
+      <button type="button" class="date-summary-btn" onclick="togglePeDatePanel()">📅 <span id="pe_dateSummaryText"></span></button>
+      <div id="pe_datePanel" style="display:none;margin-top:8px;">
+        <div class="field"><label>시작일</label><input id="pe_startDate" type="date" value="${dk}" onchange="updatePeDateSummary()"></div>
+        <label class="check-row"><input type="checkbox" id="pe_hasEnd" ${hasEnd?'checked':''} onchange="togglePeEndField()"> 종료일 지정 (여러 날에 걸친 일정)</label>
+        <div class="field" id="pe_endDateWrap" style="${hasEnd?'':'display:none;'}"><label>종료일</label><input id="pe_endDate" type="date" value="${existing && existing.endDate ? existing.endDate : dk}" onchange="updatePeDateSummary()"></div>
+        <label class="check-row"><input type="checkbox" id="pe_hasTime" ${timeOn?'checked':''} onchange="togglePeTimeField()"> 시간 포함</label>
+        <div id="pe_timeWrap" style="display:${timeOn?'flex':'none'};gap:8px;">
+          <div class="field" style="flex:1;"><label>시작 시각</label><input id="pe_time" type="time" value="${existing ? esc(existing.time||'15:00') : '15:00'}" onchange="updatePeDateSummary()"></div>
+          <div class="field" style="flex:1;"><label>종료 시각 (선택)</label><input id="pe_endTime" type="time" value="${existing ? esc(existing.endTime||'') : ''}" onchange="updatePeDateSummary()"></div>
+        </div>
+      </div>
+    </div>
     <div class="field"><label>구분</label>
       <select id="pe_category">
         <option value="업무" ${existing && existing.category==='업무' ? 'selected':''}>업무</option>
         <option value="개인" ${existing && existing.category==='개인' ? 'selected':''}>개인</option>
       </select></div>
-    <div class="field"><label>시각</label><input id="pe_time" type="time" value="${existing ? esc(existing.time||'15:00') : '15:00'}"></div>
-    <div class="field"><label>내용</label><input id="pe_text" placeholder="예: 학부모 상담" value="${esc(existing && existing.text)}"></div>
-    <div class="field"><label>링크 (선택)</label><input id="pe_link" type="url" placeholder="예: https://..." value="${esc(existing && existing.link)}"></div>
-    <div class="field"><label>파일 첨부 (선택, 이미지·문서)</label><input id="pe_file" type="file" accept="image/*,.pdf,.doc,.docx,.hwp,.ppt,.pptx,.xls,.xlsx,.txt"></div>
-    ${existingFileNote}
-    <div style="font-size:11px;color:#9CA3AF;margin-top:-6px;">이미지는 자동으로 용량을 줄여서 저장돼요. 문서 파일은 2MB 이하로 올려주세요.</div>
-    <button class="btn primary full" onclick="savePersonalEvent('${id||''}')">저장</button>
+    <div class="field"><label>내용 (선택)</label>
+      <div class="richtext-toolbar">
+        <button type="button" class="rt-btn" onmousedown="event.preventDefault()" onclick="document.execCommand('bold')"><b>B</b></button>
+        <button type="button" class="rt-btn" onmousedown="event.preventDefault()" onclick="document.execCommand('italic')"><i>I</i></button>
+        <button type="button" class="rt-btn" onmousedown="event.preventDefault()" onclick="document.execCommand('insertUnorderedList')">≡</button>
+        <button type="button" class="rt-btn" onmousedown="event.preventDefault()" onclick="togglePeLinkRow()">🔗</button>
+        <button type="button" class="rt-btn" onmousedown="event.preventDefault()" onclick="document.getElementById('pe_file').click()">📎</button>
+      </div>
+      <div id="pe_linkRow" style="display:none;margin-bottom:6px;">
+        <input id="pe_link" type="url" placeholder="https://..." value="${esc(existing && existing.link)}" oninput="renderPeAttachChips()">
+      </div>
+      <div id="pe_attachChips" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px;"></div>
+      <input id="pe_file" type="file" accept="image/*,.pdf,.doc,.docx,.hwp,.ppt,.pptx,.xls,.xlsx,.txt" style="display:none;" onchange="renderPeAttachChips()">
+      <div id="pe_text" class="richtext-input" contenteditable="true" data-placeholder="내용을 입력하세요">${existingContentHtml}</div>
+      <div style="font-size:11px;color:#9CA3AF;margin-top:4px;">이미지는 자동으로 용량을 줄여서 저장돼요. 문서 파일은 2MB 이하로 올려주세요.</div>
+    </div>
+    <button class="btn primary full" onclick="savePersonalEvent('${dk}','${id||''}')">저장</button>
   `;
   document.getElementById('modalOverlay').classList.add('open');
+  document.getElementById('pe_attachChips').dataset.existingFileName = existing && existing.fileName ? existing.fileName : '';
+  document.getElementById('pe_attachChips').dataset.existingRemoved = 'false';
+  updatePeDateSummary();
+  renderPeAttachChips();
 }
 function readFileAsDataURL(file){
   return new Promise((resolve,reject)=>{
@@ -1504,16 +1693,38 @@ function compressImageFile(file, maxDim=1280, quality=0.72){
     reader.readAsDataURL(file);
   });
 }
-async function savePersonalEvent(id){
-  const dk = STATE.selectedDateKey;
-  const existing = id ? (STATE.personalEvents[dk]||{})[id] : null;
+async function savePersonalEvent(origStartDate, id){
+  const oldDk = origStartDate || STATE.selectedDateKey;
+  const existing = id ? (STATE.personalEvents[oldDk]||{})[id] : null;
   const category = document.getElementById('pe_category').value;
-  const time = document.getElementById('pe_time').value;
-  const text = document.getElementById('pe_text').value.trim();
+  const newDk = document.getElementById('pe_startDate').value;
+  if(!newDk){ alert('시작일을 선택해주세요'); return; }
+  const hasEnd = document.getElementById('pe_hasEnd').checked;
+  let endDate = null;
+  if(hasEnd){
+    endDate = document.getElementById('pe_endDate').value;
+    if(!endDate){ alert('종료일을 선택해주세요'); return; }
+    if(endDate < newDk){ alert('종료일은 시작일보다 빠를 수 없어요'); return; }
+  }
+  const allDay = !document.getElementById('pe_hasTime').checked;
+  let time = '', endTime = '';
+  if(!allDay){
+    time = document.getElementById('pe_time').value;
+    endTime = document.getElementById('pe_endTime').value;
+    if(!time){ alert('시작 시각을 입력해주세요'); return; }
+  }
+  const title = document.getElementById('pe_title').value.trim();
+  if(!title){ alert('제목을 입력해주세요'); return; }
+  const textEl = document.getElementById('pe_text');
+  const textHtml = textEl.innerHTML.trim();
+  const textPlain = textEl.innerText.trim();
   const link = document.getElementById('pe_link').value.trim();
   const file = document.getElementById('pe_file').files[0];
-  if(!text){ alert('내용을 입력해주세요'); return; }
-  const data = {category,time,text};
+  const removedExistingFile = document.getElementById('pe_attachChips').dataset.existingRemoved === 'true';
+  const data = {category, allDay, title};
+  if(textPlain) data.textHtml = textHtml;
+  if(!allDay){ data.time = time; if(endTime) data.endTime = endTime; }
+  if(endDate && endDate!==newDk) data.endDate = endDate;
   if(link) data.link = link;
   if(file){
     const MAX_DOC_SIZE = 2*1024*1024;
@@ -1532,19 +1743,24 @@ async function savePersonalEvent(id){
       alert('파일을 읽는 중 문제가 생겼어요. 다시 시도해주세요.');
       return;
     }
-  } else if(existing && existing.fileData){
-    // 새 파일을 고르지 않았으면 기존에 첨부돼 있던 파일을 그대로 유지해요
+  } else if(existing && existing.fileData && !removedExistingFile){
+    // 새 파일을 고르지 않았고, 칩의 ✕로 떼지도 않았으면 기존에 첨부돼 있던 파일을 그대로 유지해요
     data.fileData = existing.fileData;
     data.fileName = existing.fileName;
     data.fileType = existing.fileType;
   }
-  STATE.personalEvents[dk] = STATE.personalEvents[dk]||{};
+  STATE.personalEvents[newDk] = STATE.personalEvents[newDk]||{};
   if(id){
-    await dbSet(`personalEvents/${STATE.termId}/${dk}/${id}`, data);
-    STATE.personalEvents[dk][id] = data;
+    if(newDk!==oldDk){
+      // 시작일을 다른 날짜로 바꾼 경우: 원래 저장돼 있던 위치(oldDk)에서 지우고 새 위치(newDk)에 같은 id로 다시 저장해요.
+      await dbRemove(`personalEvents/${STATE.termId}/${oldDk}/${id}`);
+      if(STATE.personalEvents[oldDk]) delete STATE.personalEvents[oldDk][id];
+    }
+    await dbSet(`personalEvents/${STATE.termId}/${newDk}/${id}`, data);
+    STATE.personalEvents[newDk][id] = data;
   } else {
-    const res = await dbPush(`personalEvents/${STATE.termId}/${dk}`, data);
-    STATE.personalEvents[dk][res.name] = data;
+    const res = await dbPush(`personalEvents/${STATE.termId}/${newDk}`, data);
+    STATE.personalEvents[newDk][res.name] = data;
   }
   closeModal(); renderDayDetail(); renderCalendar();
 }
