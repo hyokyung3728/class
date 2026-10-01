@@ -177,6 +177,10 @@
   /* ---------- 모달 ---------- */
   #modalOverlay{position:fixed;inset:0;background:rgba(0,0,0,.4);display:none;align-items:flex-end;justify-content:center;z-index:150;}
   #modalOverlay.open{display:flex;}
+  #imgLightbox{position:fixed;inset:0;background:rgba(0,0,0,.92);display:none;align-items:center;justify-content:center;z-index:300;}
+  #imgLightbox.open{display:flex;}
+  #imgLightbox img{max-width:92vw;max-height:88vh;border-radius:8px;}
+  #imgLightbox .iconbtn{position:absolute;top:calc(env(safe-area-inset-top) + 14px);right:16px;background:rgba(255,255,255,.15);color:#fff;}
   #modalBody{background:#fff;width:100%;max-width:520px;border-radius:16px 16px 0 0;padding:20px 20px calc(20px + env(safe-area-inset-bottom));max-height:88vh;overflow-y:auto;}
   .modal-title{font-size:15px;font-weight:700;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;}
   .modal-title button{border:none;background:none;font-size:18px;color:var(--gray-faint);}
@@ -306,6 +310,11 @@
 <!-- ================= 모달 ================= -->
 <div id="modalOverlay" onclick="if(event.target===this) closeModal()">
   <div id="modalBody"></div>
+</div>
+
+<div id="imgLightbox" onclick="closeImgLightbox()">
+  <button class="iconbtn" onclick="closeImgLightbox()">✕</button>
+  <img id="imgLightboxImg" src="" alt="첨부 이미지">
 </div>
 
 <div id="toastContainer"></div>
@@ -1220,7 +1229,7 @@ function renderDayDetail(){
     let attach = '';
     if(ev.fileData){
       if(ev.fileType==='image'){
-        attach = `<a href="${ev.fileData}" target="_blank" rel="noopener"><img src="${ev.fileData}" style="max-width:100%;max-height:160px;border-radius:8px;margin-top:6px;display:block;"></a>`;
+        attach = `<img src="${ev.fileData}" onclick="openImgLightbox('${ev.fileData}')" style="max-width:100%;max-height:160px;border-radius:8px;margin-top:6px;display:block;cursor:pointer;">`;
       } else {
         attach = `<a href="${ev.fileData}" download="${ev.fileName||'file'}" style="font-size:12px;color:var(--blue);display:inline-block;margin-top:6px;">📎 ${ev.fileName||'첨부파일'} 다운로드</a>`;
       }
@@ -1803,6 +1812,8 @@ async function deleteStudentRecord(id){
 }
 
 function closeModal(){ document.getElementById('modalOverlay').classList.remove('open'); }
+function openImgLightbox(src){ document.getElementById('imgLightboxImg').src = src; document.getElementById('imgLightbox').classList.add('open'); }
+function closeImgLightbox(){ document.getElementById('imgLightbox').classList.remove('open'); document.getElementById('imgLightboxImg').src=''; }
 
 /* ======================================================================
    진도표 화면
