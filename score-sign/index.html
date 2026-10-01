@@ -1,0 +1,1895 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="점수 확인">
+<meta name="robots" content="noindex">
+<script>
+/* ===== 구글 드라이브 설정 =====
+   구글 클라우드 콘솔에서 받은 값 세 개를 따옴표 안에 붙여 넣으세요.
+   비워 두면 [구글 드라이브에서 열기] 버튼만 안 보이고, 나머지는 그대로 동작해요. */
+window.DRIVE_CONFIG = {
+  clientId: '',   // OAuth 클라이언트 ID  (예: 1234567890-abc...apps.googleusercontent.com)
+  apiKey:   '',   // API 키              (예: AIzaSy...)
+  appId:    ''    // 프로젝트 번호        (숫자만, 예: 1234567890)
+};
+</script>
+<style>html{-webkit-text-size-adjust:100%}body{margin:0}img{max-width:100%}:root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}</style>
+<title>점수 확인 서명판</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@400;700&family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
+<style>
+/* Layout: teacher desk (setup) → student kiosk (number grid) → one private score card with a paper signature pad */
+:root {
+  --bg: #eef1f5;
+  --surface: #ffffff;
+  --sunken: #f5f7fa;
+  --ink: #161d29;
+  --muted: #5a6474;
+  --line: #d6dce5;
+  --accent: #23449e;      /* 청색 볼펜 */
+  --accent-soft: #e3e9f7;
+  --accent-ink: #ffffff;
+  --stamp: #c3332b;       /* 인주 */
+  --stamp-soft: #f8e3e1;
+  --ok: #1f7a4d;
+  --ok-soft: #e0f1e8;
+  --warn-soft: #fff4d6;
+  --paper: #ffffff;       /* 서명지: 양쪽 테마 모두 흰 종이 */
+  --paper-line: #b9c1cd;
+  --shadow: 0 1px 2px rgba(22,29,41,.06), 0 8px 24px rgba(22,29,41,.06);
+  --f-display: "Gowun Batang", "Nanum Myeongjo", "AppleMyungjo", serif;
+  --f-body: "IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
+  --r: 10px;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #0f141b; --surface: #171e28; --sunken: #121820; --ink: #e6ebf2; --muted: #98a3b3; --line: #2a3442;
+  --accent: #86a2f0; --accent-soft: #1f2b47; --accent-ink: #0d1422; --stamp: #f07068; --stamp-soft: #3a1f1f;
+  --ok: #5cc795; --ok-soft: #173326; --warn-soft: #3a3016; --paper: #ffffff; --paper-line: #b9c1cd;
+  --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.25); color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #0f141b; --surface: #171e28; --sunken: #121820; --ink: #e6ebf2; --muted: #98a3b3; --line: #2a3442;
+  --accent: #86a2f0; --accent-soft: #1f2b47; --accent-ink: #0d1422; --stamp: #f07068; --stamp-soft: #3a1f1f;
+  --ok: #5cc795; --ok-soft: #173326; --warn-soft: #3a3016; --paper: #ffffff; --paper-line: #b9c1cd;
+  --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.25); color-scheme: dark; }
+
+[hidden] { display: none !important; }
+html, body { height: 100%; }
+body { background: var(--bg); color: var(--ink); font: 15px/1.55 var(--f-body); -webkit-text-size-adjust: 100%; }
+* { box-sizing: border-box; }
+h1, h2, h3 { margin: 0; text-wrap: balance; }
+button, input, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.wrap { max-width: 1120px; margin: 0 auto; padding-inline: 16px; padding-block: 20px 120px; }
+.num { font-variant-numeric: tabular-nums; }
+
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 0 18px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); font-weight: 600; touch-action: manipulation; }
+.btn:hover { border-color: var(--muted); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.btn.stamp { background: var(--stamp); border-color: var(--stamp); color: #fff; }
+.btn.ghost { background: transparent; border-color: transparent; color: var(--muted); }
+.btn.small { min-height: 34px; padding: 0 12px; font-size: 13px; }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+
+.eyebrow { font-size: 12px; letter-spacing: .08em; color: var(--muted); font-weight: 600; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 20px; min-width: 0; }
+.panel h2 { font-size: 17px; font-weight: 700; display: flex; align-items: baseline; gap: 10px; }
+.panel h2 .step { font-family: var(--f-display); color: var(--accent); font-size: 20px; }
+.hint { color: var(--muted); font-size: 13px; margin: 4px 0 0; }
+
+/* ---------- start ---------- */
+.masthead { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; padding-bottom: 18px; border-bottom: 2px solid var(--ink); margin-bottom: 24px; }
+.masthead h1 { font-family: var(--f-display); font-size: clamp(28px, 4vw, 38px); font-weight: 700; letter-spacing: -.01em; }
+.masthead p { margin: 4px 0 0; color: var(--muted); }
+.privacy { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ok); background: var(--ok-soft); padding: 6px 12px; border-radius: 999px; font-weight: 600; }
+.start-grid { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 20px; }
+@media (max-width: 820px) { .start-grid { grid-template-columns: 1fr; } }
+.drop { display: grid; place-items: center; text-align: center; gap: 10px; min-height: 260px; border: 2px dashed var(--paper-line); border-radius: var(--r); background: var(--surface); padding: 28px 20px; transition: border-color .15s, background .15s; }
+.drop.over { border-color: var(--accent); background: var(--accent-soft); }
+.drop .big { font-family: var(--f-display); font-size: 22px; font-weight: 700; }
+.drop .row { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+.flow { display: grid; gap: 14px; margin: 0; padding: 0; list-style: none; counter-reset: s; }
+.flow li { display: grid; grid-template-columns: 34px 1fr; gap: 12px; align-items: start; }
+.flow li::before { counter-increment: s; content: counter(s); font-family: var(--f-display); font-weight: 700; font-size: 18px; width: 34px; height: 34px; border-radius: 50%; border: 1.5px solid var(--accent); color: var(--accent); display: grid; place-items: center; }
+.flow b { display: block; }
+.flow span { color: var(--muted); font-size: 14px; }
+.resume { margin-top: 16px; display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; background: var(--warn-soft); border-radius: var(--r); padding: 14px 16px; }
+.err { color: var(--stamp); background: var(--stamp-soft); border-radius: 8px; padding: 10px 14px; font-size: 14px; margin-top: 12px; }
+
+/* ---------- setup ---------- */
+.filebar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+.filebar .fname { font-weight: 700; font-size: 18px; word-break: break-all; }
+.tag { display: inline-block; font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--warn-soft); color: var(--ink); vertical-align: middle; }
+.setup-grid { display: grid; grid-template-columns: minmax(0, 380px) minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 900px) { .setup-grid { grid-template-columns: 1fr; } }
+.fields { display: grid; gap: 14px; margin-top: 14px; }
+.field { display: grid; gap: 6px; }
+.field > label, .field > .lbl { font-size: 13px; font-weight: 600; color: var(--muted); }
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+select, input[type=text], input[type=number] { width: 100%; min-height: 42px; border: 1px solid var(--line); border-radius: 8px; background: var(--sunken); padding: 0 10px; min-width: 0; }
+.scorelist { display: grid; gap: 6px; }
+.scoreitem { display: grid; grid-template-columns: 26px 34px minmax(0,1fr) 64px; gap: 6px; align-items: center; padding: 4px 6px; border-radius: 8px; }
+.scoreitem.on { background: var(--accent-soft); }
+.scoreitem .col { font-weight: 700; color: var(--muted); font-size: 13px; text-align: center; }
+.scoreitem input[type=checkbox] { width: 20px; height: 20px; accent-color: var(--accent); }
+.scoreitem input[type=text], .scoreitem input[type=number] { min-height: 36px; font-size: 14px; }
+.scorehead { display: grid; grid-template-columns: 26px 34px minmax(0,1fr) 64px; gap: 6px; font-size: 12px; color: var(--muted); padding: 0 6px; }
+.check { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; }
+.check input { width: 20px; height: 20px; margin-top: 2px; accent-color: var(--accent); flex: none; }
+
+.preview { overflow: auto; max-height: 440px; border: 1px solid var(--line); border-radius: 8px; margin-top: 14px; background: var(--sunken); }
+.preview table { border-collapse: collapse; font-size: 12.5px; }
+.preview th, .preview td { border: 1px solid var(--line); padding: 4px 8px; white-space: nowrap; max-width: 180px; overflow: hidden; text-overflow: ellipsis; background: var(--surface); }
+.preview thead th { position: sticky; top: 0; background: var(--sunken); color: var(--muted); font-weight: 600; z-index: 1; }
+.preview th.rh { position: sticky; left: 0; background: var(--sunken); color: var(--muted); font-weight: 600; cursor: pointer; z-index: 1; }
+.preview tr.hdr td { background: var(--ink); color: var(--bg); font-weight: 700; }
+.preview td.k-id { background: var(--sunken); font-weight: 600; }
+.preview td.k-score { background: var(--accent-soft); }
+.preview td.k-sig { background: var(--stamp-soft); }
+.preview tr.hdr td.k-score { background: var(--accent); color: var(--accent-ink); }
+.preview tr.hdr td.k-sig { background: var(--stamp); color: #fff; }
+.preview tr.dim td { color: var(--muted); }
+.preview td.k-hide { opacity: .35; text-decoration: line-through; }
+.hidelist { display: flex; flex-wrap: wrap; gap: 6px; }
+.hidechip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px 6px 8px; font-size: 13px; background: var(--sunken); max-width: 100%; }
+.hidechip input { width: 18px; height: 18px; accent-color: var(--stamp); flex: none; }
+.hidechip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 200px; }
+.hidechip.on { border-color: var(--stamp); background: var(--stamp-soft); }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-top: 10px; }
+.legend i { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -1px; margin-right: 5px; border: 1px solid var(--line); }
+
+.roster-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.meter { display: flex; align-items: center; gap: 10px; font-weight: 700; }
+.meter .bar { width: 160px; height: 8px; border-radius: 99px; background: var(--sunken); border: 1px solid var(--line); overflow: hidden; }
+.meter .bar i { display: block; height: 100%; background: var(--stamp); }
+.roster { overflow-x: auto; margin-top: 12px; }
+.roster table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.roster th, .roster td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.roster th { font-size: 12px; color: var(--muted); font-weight: 600; }
+.roster td.sc { text-align: right; font-variant-numeric: tabular-nums; }
+.roster th.sc { text-align: right; }
+.roster .thumb { height: 34px; width: 96px; object-fit: contain; background: var(--paper); border: 1px solid var(--line); border-radius: 4px; display: block; }
+.pending { color: var(--muted); font-size: 13px; }
+
+.actionbar { position: fixed; left: 0; right: 0; bottom: 0; padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px)); background: var(--surface); border-top: 1px solid var(--line); box-shadow: 0 -6px 20px rgba(0,0,0,.06); z-index: 20; }
+.actionbar .in { max-width: 1120px; margin: 0 auto; display: flex; gap: 10px; align-items: center; justify-content: flex-end; flex-wrap: wrap; }
+.actionbar .msg { margin-right: auto; font-size: 13px; color: var(--muted); min-width: 0; }
+
+/* ---------- kiosk ---------- */
+.kiosk { min-height: 100%; display: flex; flex-direction: column; }
+.kiosk .top { text-align: center; padding: 28px 16px 8px; }
+.kiosk .top .title { font-family: var(--f-display); font-size: clamp(22px, 3.2vw, 30px); font-weight: 700; }
+.kiosk .top .sub { color: var(--muted); margin-top: 6px; font-size: 17px; }
+.numgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 12px; max-width: 980px; width: 100%; margin: 20px auto; padding-inline: 16px; }
+.numbtn { position: relative; aspect-ratio: 1 / 1; max-width: 100%; border-radius: 14px; border: 1.5px solid var(--line); background: var(--surface); font-size: 30px; font-weight: 700; font-variant-numeric: tabular-nums; box-shadow: var(--shadow); touch-action: manipulation; }
+.numbtn:active { transform: scale(.97); }
+.numbtn.done { background: var(--sunken); color: var(--muted); box-shadow: none; }
+.numbtn.done::after { content: "확인"; position: absolute; right: 6px; bottom: 6px; font-family: var(--f-display); font-size: 12px; font-weight: 700; color: var(--stamp); border: 1.5px solid var(--stamp); border-radius: 50%; width: 34px; height: 34px; display: grid; place-items: center; transform: rotate(-12deg); opacity: .9; }
+.numbtn.long { font-size: 20px; }
+.kiosk .foot { margin-top: auto; display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 16px calc(12px + env(safe-area-inset-bottom, 0px)); color: var(--muted); font-size: 14px; }
+
+/* ---------- student card ---------- */
+.student { max-width: 760px; margin: 0 auto; padding-inline: 16px; padding-block: 20px 28px; display: grid; gap: 16px; }
+.who { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+.who .n { font-size: 18px; font-weight: 700; color: var(--muted); font-variant-numeric: tabular-nums; }
+.who .nm { font-family: var(--f-display); font-size: 38px; font-weight: 700; line-height: 1.2; }
+.who .ttl { margin-left: auto; color: var(--muted); font-size: 14px; }
+.scores { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+.sc-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 14px 16px; display: grid; gap: 4px; min-width: 0; }
+.sc-card .l { font-size: 14px; color: var(--muted); font-weight: 600; }
+.sc-card .v { white-space: nowrap; font-size: 34px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.sc-card .v small { font-size: 16px; color: var(--muted); font-weight: 500; margin-left: 4px; }
+.sc-card.total { grid-column: 1 / -1; background: var(--ink); color: var(--bg); border-color: var(--ink); display: flex; justify-content: space-between; align-items: center; }
+.sc-card.total .l, .sc-card.total .v small { color: var(--bg); opacity: .75; }
+.sc-card.total .v { font-size: 44px; }
+.agree { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 14px 16px; font-size: 17px; font-weight: 600; }
+.agree input { width: 26px; height: 26px; }
+.padwrap { position: relative; background: var(--paper); border: 1.5px solid var(--paper-line); border-radius: var(--r); height: 230px; overflow: hidden; }
+.padwrap canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; }
+.padwrap .base { position: absolute; left: 24px; right: 24px; bottom: 54px; border-bottom: 1.5px dashed var(--paper-line); pointer-events: none; }
+.padwrap .x { position: absolute; left: 24px; bottom: 60px; font-family: var(--f-display); font-size: 22px; color: #8a93a2; pointer-events: none; }
+.padwrap .ph { position: absolute; inset: 0; display: grid; place-items: center; color: #8a93a2; font-size: 16px; pointer-events: none; }
+.padwrap .clear { position: absolute; top: 10px; right: 10px; background: #f1f3f6; color: #222; border-color: #d6dce5; }
+.padwrap.locked::after { content: "먼저 위의 확인란에 체크하세요"; position: absolute; inset: 0; display: grid; place-items: center; background: rgba(255,255,255,.82); color: #3b4452; font-weight: 600; font-size: 16px; }
+.st-actions { display: flex; gap: 10px; justify-content: space-between; }
+.st-actions .btn { min-height: 54px; font-size: 17px; padding: 0 24px; }
+.st-actions .btn.primary { flex: 1; max-width: 320px; }
+.idle { text-align: center; font-size: 13px; color: var(--muted); }
+
+/* ---------- modal ---------- */
+.modal { position: fixed; inset: 0; background: rgba(10,14,20,.55); display: grid; place-items: center; padding: 16px; z-index: 50; }
+.dialog { background: var(--surface); border-radius: 14px; padding: 24px; width: 100%; max-width: 400px; box-shadow: var(--shadow); display: grid; gap: 16px; text-align: center; }
+.dialog h3 { font-size: 19px; }
+.dialog p { margin: 0; color: var(--muted); }
+.dialog .big { font-family: var(--f-display); font-size: 34px; font-weight: 700; color: var(--ink); }
+.dialog .btns { display: flex; gap: 10px; }
+.dialog .btns .btn { flex: 1; min-height: 50px; }
+.dots { display: flex; justify-content: center; gap: 14px; height: 20px; }
+.dots i { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--muted); }
+.dots i.f { background: var(--ink); border-color: var(--ink); }
+.keypad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.keypad button { min-height: 58px; border-radius: 10px; border: 1px solid var(--line); background: var(--sunken); font-size: 22px; font-weight: 600; touch-action: manipulation; }
+.shake { animation: shake .3s; }
+@keyframes shake { 25% { transform: translateX(-8px); } 75% { transform: translateX(8px); } }
+.toast { position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 10px 18px; border-radius: 999px; font-weight: 600; z-index: 60; max-width: calc(100% - 32px); text-align: center; }
+.donecard { display: grid; place-items: center; gap: 14px; text-align: center; padding: 60px 16px; }
+.donecard .seal { font-family: var(--f-display); font-size: 30px; font-weight: 700; color: var(--stamp); border: 3px solid var(--stamp); border-radius: 50%; width: 120px; height: 120px; display: grid; place-items: center; transform: rotate(-10deg); }
+.donecard .t { font-size: 22px; font-weight: 700; }
+/* ---------- file tabs & structure ---------- */
+.tabs { display: flex; gap: 8px; flex-wrap: wrap; align-items: stretch; margin-bottom: 14px; }
+.tab { display: flex; align-items: center; gap: 4px; border: 1px solid var(--line); background: var(--surface); border-radius: 10px; padding: 4px 4px 4px 14px; min-width: 0; max-width: 100%; }
+.tab.on { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); background: var(--accent-soft); }
+.tab .go { background: none; border: 0; padding: 6px 4px; text-align: left; display: grid; gap: 1px; min-width: 0; }
+.tab .go b { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 260px; }
+.tab .go span { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.tab .x { background: none; border: 0; width: 32px; height: 32px; border-radius: 6px; color: var(--muted); font-size: 18px; line-height: 1; }
+.tab .x:hover { background: var(--sunken); color: var(--stamp); }
+.tabadd { border: 1.5px dashed var(--paper-line); background: transparent; border-radius: 10px; padding: 0 16px; font-weight: 600; color: var(--accent); min-height: 48px; }
+details.struct { border: 1px solid var(--line); border-radius: 10px; background: var(--sunken); }
+details.struct > summary { cursor: pointer; padding: 12px 14px; font-size: 14px; list-style: none; display: grid; gap: 2px; }
+details.struct > summary::-webkit-details-marker { display: none; }
+details.struct > summary b::before { content: "▸ "; color: var(--muted); }
+details.struct[open] > summary b::before { content: "▾ "; }
+details.struct > summary span { color: var(--muted); font-size: 13px; }
+details.struct .inner { display: grid; gap: 12px; padding: 0 14px 14px; }
+.kfile { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.kfile #k-progress { white-space: nowrap; }
+.kfile select { min-height: 36px; max-width: 240px; font-size: 14px; }
+/* ---------- checking several files together ---------- */
+#s-scores { display: grid; gap: 18px; }
+.sc-group { display: grid; gap: 10px; }
+.sc-group h3 { font-size: 16px; font-weight: 700; color: var(--muted); padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+.notice { background: var(--warn-soft); border-radius: 10px; padding: 12px 14px; font-weight: 600; }
+.numbtn.part::after { content: "일부"; position: absolute; right: 6px; bottom: 6px; font-size: 11px; font-weight: 700; color: var(--muted); }
+/* ---------- objections & corrections ---------- */
+.decide { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: stretch; }
+@media (max-width: 560px) { .decide { grid-template-columns: 1fr; } }
+.decide .btn.object { min-height: 100%; padding: 0 20px; font-size: 16px; color: var(--stamp); border-color: var(--stamp); background: var(--surface); }
+textarea { width: 100%; min-height: 84px; border: 1px solid var(--line); border-radius: 8px; background: var(--sunken); padding: 10px; font: inherit; color: inherit; resize: vertical; }
+.dialog.wide { max-width: 520px; text-align: left; max-height: calc(100% - 32px); overflow-y: auto; }
+.dialog.wide h3 { text-align: left; }
+.objlist { display: grid; gap: 8px; }
+.objitem { display: flex; gap: 12px; align-items: center; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; font-size: 16px; font-weight: 600; background: var(--sunken); }
+.objitem input { width: 22px; height: 22px; accent-color: var(--stamp); flex: none; }
+.objlist.pick .objitem input { accent-color: var(--accent); }
+.objitem .ov { white-space: nowrap; margin-left: auto; color: var(--muted); font-weight: 500; font-variant-numeric: tabular-nums; }
+.pill { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 700; padding: 3px 10px; border-radius: 999px; white-space: nowrap; }
+.pill.obj { background: var(--stamp-soft); color: var(--stamp); }
+.pill.res { background: var(--accent-soft); color: var(--accent); }
+.pill.miss { background: var(--warn-soft); color: var(--ink); }
+.roster td.fixed { color: var(--accent); font-weight: 700; }
+.roster td.fixed::after { content: " 정정"; font-size: 11px; font-weight: 600; }
+.roster .memo { font-size: 12.5px; color: var(--muted); white-space: normal; max-width: 260px; margin-top: 2px; }
+.roster tr.row-obj td { background: var(--stamp-soft); }
+.fixgrid { display: grid; gap: 8px; }
+.fixrow { display: grid; grid-template-columns: minmax(0, 1fr) 110px; gap: 10px; align-items: center; }
+.fixrow .orig { display: block; font-size: 12px; color: var(--muted); }
+.objbox { background: var(--stamp-soft); border-radius: 10px; padding: 12px 14px; display: grid; gap: 4px; font-size: 14px; }
+.objbox b { color: var(--stamp); }
+.numbtn.obj { background: var(--stamp-soft); color: var(--stamp); box-shadow: none; }
+.numbtn.obj::after { content: "이의"; position: absolute; right: 6px; bottom: 6px; font-size: 11px; font-weight: 700; color: var(--stamp); }
+.numbtn.again::after { content: "재서명"; position: absolute; right: 6px; bottom: 6px; font-size: 11px; font-weight: 700; color: var(--accent); }
+.sumlist { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; text-align: left; font-size: 14px; }
+.sumlist li { display: flex; justify-content: space-between; gap: 12px; padding: 8px 12px; border-radius: 8px; background: var(--sunken); }
+.sumlist .who2 { color: var(--muted); font-size: 12.5px; }
+@media (prefers-reduced-motion: reduce) { .shake { animation: none; } * { transition: none !important; } }
+</style>
+
+</head>
+<body>
+<!-- ================= START ================= -->
+<main id="v-start" class="wrap">
+  <header class="masthead">
+    <div>
+      <h1>점수 확인 서명판</h1>
+      <p>반 전체 성적 엑셀을 올리면, 학생은 자기 번호를 눌러 본인 점수만 보고 서명합니다.</p>
+    </div>
+    <span class="privacy">● 파일은 이 기기 밖으로 전송되지 않아요</span>
+  </header>
+  <div class="start-grid">
+    <div>
+      <label id="drop" class="drop" for="file">
+        <div class="big">성적 엑셀 파일 올리기</div>
+        <div class="hint">엑셀(.xlsx) 파일 · 수행평가 / 정기고사 확인표 그대로</div>
+        <div class="hint" id="drive-hint">컴퓨터에서 구글 드라이브에 올려 둔 엑셀도 태블릿에서 바로 열 수 있어요. [파일 선택]을 누르고 파일 앱의 [둘러보기]에서 Google Drive를 고르세요. (태블릿에 구글 드라이브 앱이 있어야 해요)</div>
+        <div class="row">
+          <span class="btn primary">파일 선택</span>
+          <button type="button" id="btn-drive" class="btn primary" hidden>구글 드라이브에서 열기</button>
+          <button type="button" id="btn-sample" class="btn">예시 파일로 먼저 해보기</button>
+        </div>
+        <input id="file" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden>
+      </label>
+      <div id="start-err" class="err" hidden></div>
+      <div id="resume" class="resume" hidden>
+        <div><b>이어서 할 작업이 있어요</b><div class="hint" id="resume-info"></div></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button id="btn-resume" class="btn primary small">이어하기</button>
+          <button id="btn-discard" class="btn small">지우기</button>
+        </div>
+      </div>
+    </div>
+    <div class="panel">
+      <h2>사용 순서</h2>
+      <ol class="flow" style="margin-top:14px">
+        <li><div><b>엑셀 파일 올리기</b><span>반 전체 점수가 있는 엑셀(.xlsx) 파일을 올려요. 여러 파일을 함께 열어 둘 수 있어요.</span></div></li>
+        <li><div><b>열 확인</b><span>번호·이름·점수·서명 칸을 자동으로 찾아요. 틀린 곳만 고치면 됩니다.</span></div></li>
+        <li><div><b>확인 받기</b><span>태블릿은 선생님이 들고, 학생이 나오면 번호를 눌러요. 그 학생의 점수만 나오고, 확인 후 서명하거나 이의를 신청해요. 수행평가·정기고사처럼 여러 파일을 함께 골라 한 번에 확인받을 수도 있어요.</span></div></li>
+        <li><div><b>이의 처리</b><span>교사 화면에서 점수를 바로 정정하거나, 엑셀에서 고친 파일을 다시 올려요. 점수가 바뀌지 않은 학생의 서명은 그대로 남아요.</span></div></li>
+        <li><div><b>엑셀·PDF 저장</b><span>원래 양식의 서명 칸에 서명이 들어간 엑셀과, 바로 인쇄할 PDF를 만들 수 있어요.</span></div></li>
+      </ol>
+    </div>
+  </div>
+</main>
+
+<!-- ================= SETUP ================= -->
+<main id="v-setup" class="wrap" hidden>
+  <div class="eyebrow" style="margin-bottom:8px">교사 화면 · 열어 둔 파일</div>
+  <div id="tabs" class="tabs"></div>
+  <div class="filebar">
+    <div class="fname"><span id="fname"></span> <span id="sample-tag" class="tag" hidden>예시 파일</span></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button id="btn-replace" class="btn small">정정한 파일로 바꾸기</button>
+      <button id="btn-clear" class="btn small ghost">모두 지우기</button>
+    </div>
+  </div>
+
+  <div class="setup-grid">
+    <section class="panel">
+      <h2><span class="step">1</span>표 읽는 방법</h2>
+      <p class="hint">자동으로 찾아 두었어요. 오른쪽 미리보기와 다르면 고쳐 주세요.</p>
+      <div class="fields">
+        <div class="field" id="f-sheet"><label for="sel-sheet">시트(반)</label><select id="sel-sheet"></select></div>
+        <div class="field"><label for="in-title">학생 화면 제목</label><input id="in-title" type="text" placeholder="예: 2학년 3반 수학 수행평가"></div>
+        <details id="d-struct" class="struct">
+          <summary><b>표 구조 · 자동으로 찾았어요</b><span id="struct-sum"></span><span>학생 명단이 이상할 때만 열어서 고치세요.</span></summary>
+          <div class="inner">
+            <div class="field"><label for="sel-hdr">머리글(제목줄) 행 · 번호, 이름, 영역 같은 제목이 적힌 줄</label><select id="sel-hdr"></select></div>
+            <div class="two">
+              <div class="field"><label for="sel-num">번호 열</label><select id="sel-num"></select></div>
+              <div class="field"><label for="sel-name">이름 열</label><select id="sel-name"></select></div>
+            </div>
+          </div>
+        </details>
+        <div class="field">
+          <span class="lbl">학생에게 보여줄 점수</span>
+          <div class="scorehead"><span></span><span>열</span><span>화면에 표시할 이름</span><span>만점</span></div>
+          <div id="scorelist" class="scorelist"></div>
+        </div>
+        <div class="field"><label for="sel-sig">서명 넣을 칸</label><select id="sel-sig"></select></div>
+        <div class="field"><span class="lbl">출력에서 뺄 열</span><div id="hidelist" class="hidelist"></div><span class="hint">체크한 열은 PDF에 나오지 않고, 엑셀에서는 숨김 처리돼요(내용은 그대로 남아요).</span></div>
+        <label class="check"><input id="chk-lock" type="checkbox"> <span>잠금 번호 사용<br><span class="hint">태블릿을 학생에게 맡겨 둘 때만 켜세요. 켜면 선생님 화면으로 돌아갈 때 번호가 필요해요.</span></span></label>
+        <label class="check"><input id="chk-enlarge" type="checkbox"> <span>서명이 잘 보이도록 학생 행 높이를 조금 늘리기<br><span class="hint">행이 많으면 인쇄가 2쪽으로 넘어갈 수 있어요.</span></span></label>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2><span class="step">2</span>미리보기</h2>
+      <p class="hint">행 번호를 누르면 그 행을 머리글로 정합니다.</p>
+      <div class="legend">
+        <span><i style="background:var(--sunken)"></i>번호·이름</span>
+        <span><i style="background:var(--accent-soft)"></i>보여줄 점수</span>
+        <span><i style="background:var(--stamp-soft)"></i>서명 칸</span>
+      </div>
+      <div id="preview" class="preview"></div>
+    </section>
+  </div>
+
+  <section class="panel" style="margin-top:16px">
+    <div class="roster-head">
+      <h2><span class="step">3</span>학생 명단과 서명 현황</h2>
+      <div class="meter num"><span id="meter-t"></span><span class="bar"><i id="meter-b"></i></span></div>
+    </div>
+    <div id="roster" class="roster"></div>
+  </section>
+
+  <div class="actionbar"><div class="in">
+    <span id="bar-msg" class="msg"></span>
+    <button id="btn-pdf" class="btn">PDF 저장</button>
+    <button id="btn-export" class="btn">엑셀 저장</button>
+    <button id="btn-kiosk" class="btn primary">확인 받기 시작</button>
+  </div></div>
+</main>
+
+<!-- ================= KIOSK ================= -->
+<main id="v-kiosk" class="kiosk" hidden>
+  <div class="top">
+    <div class="title" id="k-title"></div>
+    <div class="sub">학생이 오면 번호를 누르세요. 그 학생의 점수만 화면에 나와요.</div>
+  </div>
+  <div id="numgrid" class="numgrid"></div>
+  <div class="foot">
+    <span id="k-progress" class="num"></span>
+    <button id="btn-lock" class="btn small">선생님 화면</button>
+  </div>
+</main>
+
+<!-- ================= STUDENT ================= -->
+<main id="v-student" hidden>
+  <div class="student">
+    <div class="who"><span class="n num" id="s-num"></span><span class="nm" id="s-name"></span><span class="ttl" id="s-title"></span></div>
+    <div id="s-scores"></div>
+    <div class="decide">
+      <label class="check agree"><input id="s-agree" type="checkbox"> <span id="s-agree-t">위 점수를 확인했습니다.</span></label>
+      <button id="s-object" class="btn object" type="button">점수에 이의가 있어요</button>
+    </div>
+    <div id="padwrap" class="padwrap locked">
+      <canvas id="pad"></canvas>
+      <div class="base"></div><div class="x">✕</div>
+      <div class="ph" id="pad-ph">여기에 서명하세요</div>
+      <button id="pad-clear" class="btn small clear" type="button">다시 쓰기</button>
+    </div>
+    <div class="st-actions">
+      <button id="s-cancel" class="btn">취소</button>
+      <button id="s-submit" class="btn primary" disabled>서명 제출</button>
+    </div>
+    <div class="idle" id="s-idle"></div>
+  </div>
+</main>
+
+<main id="v-done" hidden>
+  <div class="donecard"><div class="seal" id="done-seal">확인</div><div class="t" id="done-t">서명했습니다. 태블릿을 다음 친구에게 전해 주세요.</div></div>
+</main>
+
+<div id="modal" class="modal" hidden><div class="dialog" id="dialog"></div></div>
+<div id="toast" class="toast" hidden></div>
+
+<script>
+/* ===== core: zip + xlsx read/patch (no dependencies) ===== */
+const CRC_TABLE = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+function crc32(u8) { let c = 0xFFFFFFFF; for (let i = 0; i < u8.length; i++) c = CRC_TABLE[(c ^ u8[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+async function pipeBytes(u8, ts) { const s = new Blob([u8]).stream().pipeThrough(ts); return new Uint8Array(await new Response(s).arrayBuffer()); }
+const inflateRaw = u8 => pipeBytes(u8, new DecompressionStream('deflate-raw'));
+const deflateRaw = u8 => pipeBytes(u8, new CompressionStream('deflate-raw'));
+const TE = new TextEncoder(), TD = new TextDecoder();
+
+class Zip {
+  constructor() { this.entries = []; this.map = new Map(); }
+  static async read(buf) {
+    const u8 = new Uint8Array(buf), dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength), z = new Zip();
+    if (u8.length < 22 || dv.getUint32(0, true) !== 0x04034b50) throw new Error('NOT_ZIP');
+    let e = -1;
+    for (let i = u8.length - 22; i >= Math.max(0, u8.length - 65557); i--) if (dv.getUint32(i, true) === 0x06054b50) { e = i; break; }
+    if (e < 0) throw new Error('NOT_ZIP');
+    const count = dv.getUint16(e + 10, true); let p = dv.getUint32(e + 16, true);
+    for (let i = 0; i < count; i++) {
+      if (dv.getUint32(p, true) !== 0x02014b50) throw new Error('BAD_ZIP');
+      const flags = dv.getUint16(p + 8, true), method = dv.getUint16(p + 10, true), time = dv.getUint16(p + 12, true), date = dv.getUint16(p + 14, true);
+      const crc = dv.getUint32(p + 16, true), csize = dv.getUint32(p + 20, true), usize = dv.getUint32(p + 24, true);
+      const nlen = dv.getUint16(p + 28, true), xlen = dv.getUint16(p + 30, true), clen = dv.getUint16(p + 32, true), lho = dv.getUint32(p + 42, true);
+      const name = TD.decode(u8.subarray(p + 46, p + 46 + nlen));
+      const ds = lho + 30 + dv.getUint16(lho + 26, true) + dv.getUint16(lho + 28, true);
+      const ent = { name, flags: flags & ~8, method, time, date, crc, csize, usize, raw: u8.subarray(ds, ds + csize), data: null };
+      z.entries.push(ent); z.map.set(name, ent);
+      p += 46 + nlen + xlen + clen;
+    }
+    return z;
+  }
+  has(name) { return this.map.has(name); }
+  async bytes(name) {
+    const e = this.map.get(name); if (!e) return null;
+    if (e.data) return e.data;
+    if (e.method === 0) return e.raw;
+    if (e.method === 8) return inflateRaw(e.raw);
+    throw new Error('UNSUPPORTED_ZIP');
+  }
+  async text(name) { const b = await this.bytes(name); return b ? TD.decode(b) : null; }
+  set(name, content) {
+    const data = typeof content === 'string' ? TE.encode(content) : content;
+    let e = this.map.get(name);
+    if (!e) { e = { name, flags: 0, method: 8, time: 0, date: (46 << 9) | (1 << 5) | 1 }; this.entries.push(e); this.map.set(name, e); }
+    e.data = data; e.dirty = true;
+  }
+  async write() {
+    const parts = [], central = []; let off = 0;
+    for (const e of this.entries) {
+      if (e.dirty) { e.method = 8; e.crc = crc32(e.data); e.usize = e.data.length; e.raw = await deflateRaw(e.data); e.csize = e.raw.length; e.dirty = false; }
+      const nb = TE.encode(e.name); const flags = (e.flags & ~8) | (/[^\x00-\x7f]/.test(e.name) ? 0x800 : 0);
+      const lh = new DataView(new ArrayBuffer(30));
+      lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true); lh.setUint16(6, flags, true); lh.setUint16(8, e.method, true);
+      lh.setUint16(10, e.time, true); lh.setUint16(12, e.date, true); lh.setUint32(14, e.crc, true); lh.setUint32(18, e.csize, true);
+      lh.setUint32(22, e.usize, true); lh.setUint16(26, nb.length, true); lh.setUint16(28, 0, true);
+      parts.push(new Uint8Array(lh.buffer), nb, e.raw);
+      const ch = new DataView(new ArrayBuffer(46));
+      ch.setUint32(0, 0x02014b50, true); ch.setUint16(4, 20, true); ch.setUint16(6, 20, true); ch.setUint16(8, flags, true); ch.setUint16(10, e.method, true);
+      ch.setUint16(12, e.time, true); ch.setUint16(14, e.date, true); ch.setUint32(16, e.crc, true); ch.setUint32(20, e.csize, true); ch.setUint32(24, e.usize, true);
+      ch.setUint16(28, nb.length, true); ch.setUint32(42, off, true);
+      central.push(new Uint8Array(ch.buffer), nb);
+      off += 30 + nb.length + e.raw.length;
+    }
+    const cdSize = central.reduce((s, a) => s + a.length, 0);
+    const end = new DataView(new ArrayBuffer(22));
+    end.setUint32(0, 0x06054b50, true); end.setUint16(8, this.entries.length, true); end.setUint16(10, this.entries.length, true);
+    end.setUint32(12, cdSize, true); end.setUint32(16, off, true);
+    return new Blob([...parts, ...central, new Uint8Array(end.buffer)], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  }
+}
+
+/* --- xml helpers --- */
+const xesc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const xunesc = s => s.replace(/&(#x[0-9a-f]+|#\d+|amp|lt|gt|quot|apos);/gi, (m, g) => {
+  const k = g.toLowerCase();
+  if (k === 'amp') return '&'; if (k === 'lt') return '<'; if (k === 'gt') return '>'; if (k === 'quot') return '"'; if (k === 'apos') return "'";
+  return String.fromCodePoint(k[1] === 'x' ? parseInt(k.slice(2), 16) : parseInt(k.slice(1), 10));
+});
+const attr = (tag, name) => { const m = tag.match(new RegExp('\\s' + name + '="([^"]*)"')); return m ? xunesc(m[1]) : null; };
+const nsAttr = (tag, local) => { const m = tag.match(new RegExp('\\s[A-Za-z0-9_]+:' + local + '="([^"]*)"')); return m ? m[1] : null; };
+const colName = i => { let s = ''; i++; while (i > 0) { const m = (i - 1) % 26; s = String.fromCharCode(65 + m) + s; i = Math.floor((i - 1) / 26); } return s; };
+const colIndex = s => { let n = 0; for (const ch of s.toUpperCase()) n = n * 26 + ch.charCodeAt(0) - 64; return n - 1; };
+const parseRef = r => { const m = /^\$?([A-Z]+)\$?(\d+)$/i.exec(r); return m ? { c: colIndex(m[1]), r: +m[2] - 1 } : null; };
+function resolvePath(base, target) {
+  if (target.startsWith('/')) return target.slice(1);
+  const parts = base.split('/'); parts.pop();
+  for (const seg of target.split('/')) { if (seg === '..') parts.pop(); else if (seg && seg !== '.') parts.push(seg); }
+  return parts.join('/');
+}
+const relsPathFor = p => { const i = p.lastIndexOf('/'); return p.slice(0, i + 1) + '_rels/' + p.slice(i + 1) + '.rels'; };
+function parseRels(xml) { const out = []; if (!xml) return out; for (const m of xml.matchAll(/<Relationship\b[^>]*>/g)) out.push({ id: attr(m[0], 'Id'), type: attr(m[0], 'Type') || '', target: attr(m[0], 'Target') || '', mode: attr(m[0], 'TargetMode') }); return out; }
+function richText(x) { x = x.replace(/<rPh\b[\s\S]*?<\/rPh>/g, '').replace(/<phoneticPr\b[^>]*\/>/g, ''); let s = ''; for (const m of x.matchAll(/<t(?:\s[^>]*)?>([\s\S]*?)<\/t>/g)) s += m[1]; return xunesc(s); }
+
+async function openWorkbook(buf) {
+  const zip = await Zip.read(buf);
+  const rootRels = parseRels(await zip.text('_rels/.rels'));
+  const office = rootRels.find(r => /officeDocument$/.test(r.type));
+  const wbPath = office ? resolvePath('', office.target) : 'xl/workbook.xml';
+  const wbXml = await zip.text(wbPath); if (!wbXml) throw new Error('NOT_XLSX');
+  const wbRels = parseRels(await zip.text(relsPathFor(wbPath)));
+  const ssRel = wbRels.find(r => /sharedStrings$/.test(r.type));
+  const ss = [];
+  if (ssRel) { const x = await zip.text(resolvePath(wbPath, ssRel.target)); if (x) for (const m of x.matchAll(/<si\b[^>]*?(?:\/>|>([\s\S]*?)<\/si>)/g)) ss.push(m[1] ? richText(m[1]) : ''); }
+  const fmts = {}; let xfFmt = [];
+  const stRel = wbRels.find(r => /styles$/.test(r.type));
+  if (stRel) { const x = await zip.text(resolvePath(wbPath, stRel.target)); if (x) {
+    for (const m of x.matchAll(/<numFmt\b[^>]*>/g)) fmts[attr(m[0], 'numFmtId')] = attr(m[0], 'formatCode') || '';
+    const cx = x.match(/<cellXfs\b[^>]*>([\s\S]*?)<\/cellXfs>/);
+    if (cx) xfFmt = [...cx[1].matchAll(/<xf\b[^>]*>/g)].map(m => +(attr(m[0], 'numFmtId') || 0));
+  } }
+  const fmtOf = s => { const id = xfFmt[+s || 0] ?? 0; return { id, code: fmts[id] ?? BUILTIN_FMT[id] ?? 'General' }; };
+  const sheets = [];
+  for (const m of wbXml.matchAll(/<sheet\b[^>]*>/g)) {
+    const rid = nsAttr(m[0], 'id'); const rel = wbRels.find(r => r.id === rid);
+    if (!rel || !/worksheet$/.test(rel.type)) continue;
+    sheets.push({ name: attr(m[0], 'name'), hidden: !!attr(m[0], 'state') && attr(m[0], 'state') !== 'visible', path: resolvePath(wbPath, rel.target), index: sheets.length, localId: [...wbXml.matchAll(/<sheet\b[^>]*>/g)].indexOf(m) });
+  }
+  // localSheetId counts all sheets incl. chartsheets
+  let k = 0; for (const m of wbXml.matchAll(/<sheet\b[^>]*>/g)) { const s = sheets.find(s => s.name === attr(m[0], 'name')); if (s) s.localId = k; k++; }
+  return { zip, wbPath, ss, sheets, fmtOf };
+}
+
+const BUILTIN_FMT = { 0: 'General', 1: '0', 2: '0.00', 3: '#,##0', 4: '#,##0.00', 9: '0%', 10: '0.00%', 11: '0.00E+00', 12: '# ?/?', 13: '# ??/??', 37: '#,##0 ;(#,##0)', 38: '#,##0 ;[Red](#,##0)', 39: '#,##0.00;(#,##0.00)', 40: '#,##0.00;[Red](#,##0.00)', 49: '@' };
+const DATE_IDS = new Set([14, 15, 16, 17, 22, 27, 28, 29, 30, 31, 34, 35, 36, 50, 51, 52, 53, 54, 57, 58]);
+function isDateFmt(f) {
+  if (DATE_IDS.has(f.id)) return true;
+  const s = (f.code || '').replace(/"[^"]*"|\[[^\]]*\]|\\./g, '');
+  return /[ymd]/i.test(s) && !/^General$/i.test(s);
+}
+function decimalsOf(f) {
+  const sec = (f.code || '').split(';')[0].replace(/"[^"]*"|\[[^\]]*\]/g, '');
+  if (/^General$/i.test(sec) || sec === '@') return null;
+  const m = sec.match(/\.([0#?]+)/); return m ? m[1].length : 0;
+}
+function formatNumber(num, f) {
+  const d = decimalsOf(f);
+  const pct = /%/.test((f.code || '').split(';')[0].replace(/"[^"]*"/g, ''));
+  const n = pct ? num * 100 : num;
+  const s = d == null ? String(+n.toPrecision(12)) : n.toFixed(d);
+  return pct ? s + '%' : s;
+}
+async function readSheet(wb, sheet) {
+  const xml = await wb.zip.text(sheet.path);
+  const cells = new Map(); let maxR = 0, maxC = 0;
+  const rowHt = {};
+  const sd = xml.match(/<sheetData\b[^>]*?(?:\/>|>([\s\S]*?)<\/sheetData>)/);
+  const body = sd && sd[1] ? sd[1] : '';
+  let rowNo = 0;
+  for (const rm of body.matchAll(/<row\b([^>]*?)(?:\/>|>([\s\S]*?)<\/row>)/g)) {
+    const ra = attr(' ' + rm[1], 'r'); rowNo = ra ? +ra : rowNo + 1; const r = rowNo - 1;
+    const ht = attr(' ' + rm[1], 'ht'); if (ht) rowHt[r] = +ht;
+    if (!rm[2]) continue;
+    let c = -1;
+    for (const cm of rm[2].matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
+      const a = ' ' + cm[1]; const ref = attr(a, 'r'); c = ref ? parseRef(ref).c : c + 1;
+      const t = attr(a, 't'); const inner = cm[2] || '';
+      let v = '';
+      const vm = inner.match(/<v>([\s\S]*?)<\/v>/);
+      if (t === 's') v = vm ? (wb.ss[+vm[1]] ?? '') : '';
+      else if (t === 'inlineStr') { const im = inner.match(/<is>([\s\S]*?)<\/is>/); v = im ? richText(im[1]) : ''; }
+      else if (t === 'b') v = vm ? (vm[1] === '1' ? 'TRUE' : 'FALSE') : '';
+      else v = vm ? xunesc(vm[1]) : '';
+      const hasF = /<f[\s>\/]/.test(inner);
+      if (v === '' && !hasF) continue;
+      let num = null;
+      if (t !== 's' && t !== 'inlineStr' && t !== 'str' && t !== 'b' && t !== 'e' && v !== '' && isFinite(+v)) num = +v;
+      const rec = { v: String(v), num, f: hasF };
+      if (num != null && wb.fmtOf) {
+        const fm = wb.fmtOf(attr(a, 's'));
+        if (isDateFmt(fm) && num > 0 && num < 2958466) { const d = new Date(Date.UTC(1899, 11, 30) + Math.round(num * 864e5)); rec.date = true; rec.month = d.getUTCMonth() + 1; rec.day = d.getUTCDate(); rec.v = rec.month + '/' + rec.day; }
+        else { rec.v = formatNumber(num, fm); rec.dec = decimalsOf(fm); }
+      }
+      cells.set(r + ',' + c, rec);
+      if (r > maxR) maxR = r; if (c > maxC) maxC = c;
+    }
+  }
+  const merges = [];
+  for (const m of xml.matchAll(/<mergeCell\b[^>]*ref="([^"]+)"/g)) { const [a, b] = m[1].split(':'); const A = parseRef(a), B = parseRef(b || a); if (A && B) merges.push({ r1: A.r, c1: A.c, r2: B.r, c2: B.c }); }
+  const cols = [];
+  for (const m of xml.matchAll(/<col\b([^>]*?)\/?>/g)) { const a = ' ' + m[1]; cols.push({ min: +attr(a, 'min') - 1, max: +attr(a, 'max') - 1, width: attr(a, 'width') ? +attr(a, 'width') : null, hidden: attr(a, 'hidden') === '1' }); }
+  const fp = xml.match(/<sheetFormatPr\b[^>]*>/); const fpa = fp ? fp[0] : '';
+  const defColW = attr(fpa, 'defaultColWidth') ? +attr(fpa, 'defaultColWidth') : ((attr(fpa, 'baseColWidth') ? +attr(fpa, 'baseColWidth') : 8) + 0.71);
+  const defRowH = attr(fpa, 'defaultRowHeight') ? +attr(fpa, 'defaultRowHeight') : 15;
+  // merged cells: fill value into master only; getter resolves
+  const get = (r, c) => { const x = cells.get(r + ',' + c); if (x) return x; for (const m of merges) if (r >= m.r1 && r <= m.r2 && c >= m.c1 && c <= m.c2) return cells.get(m.r1 + ',' + m.c1) || null; return null; };
+  const colW = c => { for (const d of cols) if (c >= d.min && c <= d.max && d.width != null) return d.hidden ? 0 : d.width; return defColW; };
+  const colPx = c => Math.round(colW(c) * 7);
+  const rowPx = r => Math.round((rowHt[r] ?? defRowH) * 4 / 3);
+  for (const m of merges) { if (m.r2 > maxR) maxR = m.r2; if (m.c2 > maxC) maxC = m.c2; }
+  return { xml, cells, get, merges, maxR, maxC, colPx, rowPx, colW };
+}
+
+/* guess mapping */
+const norm = s => (s || '').replace(/\s+/g, '');
+function guessConfig(sd, forceHr) {
+  const lim = Math.min(sd.maxR, 30);
+  let headerRow = -1, numCol = -1, nameCol = -1;
+  for (let r = forceHr ?? 0; r <= (forceHr ?? lim) && headerRow < 0; r++) {
+    let nc = -1, nm = -1;
+    for (let c = 0; c <= sd.maxC; c++) { const x = sd.cells.get(r + ',' + c); if (!x) continue; const t = norm(x.v); if (nc < 0 && /^((반|학년)?[\/\-·.]?(번호|번)|학번|출석번호)$/.test(t)) nc = c; if (nm < 0 && /^(이름|성명|학생명|학생이름)$/.test(t)) nm = c; }
+    if (nc >= 0 && nm >= 0) { headerRow = r; numCol = nc; nameCol = nm; }
+  }
+  if (headerRow < 0) { headerRow = forceHr ?? 0; numCol = 0; nameCol = 1; }
+  const scoreCols = [], labels = {}, maxes = {}, weights = {};
+  let sigCol = 'new';
+  for (let c = 0; c <= sd.maxC; c++) {
+    if (c === numCol || c === nameCol || c < Math.min(numCol, nameCol)) continue;
+    const h = headerLabel(sd, headerRow, c); const t = norm(h);
+    if (/^(순|순번|연번|일련번호|학년|반|학번|성별|비고)$/.test(t)) continue;
+    if (/서명|확인란|본인확인|^확인$|^확인\(서명\)$/.test(t)) { if (sigCol === 'new') sigCol = c; continue; }
+    let numeric = 0, total = 0;
+    for (let r = headerRow + 1; r <= sd.maxR; r++) { const n = sd.cells.get(r + ',' + numCol); if (!n) continue; total++; const x = sd.cells.get(r + ',' + c); if (x && x.num != null) numeric++; }
+    if (t && ((total && numeric / total >= 0.5) || /총점|합계|환산|점수/.test(t)) && !/학번|반$|학년/.test(t)) { scoreCols.push(c); labels[c] = cleanLabel(h); maxes[c] = guessMax(h); const w = guessWeight(h); if (w != null) weights[c] = w; }
+  }
+  const cfg = { headerRow, numCol, nameCol, scoreCols, labels, maxes, weights, sigCol, hideCols: [] };
+  detectTotal(sd, cfg);
+  return cfg;
+}
+/* how the file's 합계 is made: plain sum, or weighted by 반영비율(%) */
+function detectTotal(sd, cfg) {
+  const totals = cfg.scoreCols.filter(c => isTotalLabel(cfg.labels[c]));
+  const parts = cfg.scoreCols.filter(c => !totals.includes(c));
+  cfg.totalMode = 'none';
+  if (totals.length !== 1 || !parts.length) return;
+  const T = totals[0]; const allW = parts.every(c => cfg.weights?.[c] != null);
+  let n = 0, nS = 0, nW = 0;
+  for (const st of studentRows(sd, cfg)) {
+    const t = sd.cells.get(st.row + ',' + T)?.num; if (t == null) continue;
+    const vals = parts.map(c => sd.cells.get(st.row + ',' + c)?.num); if (vals.some(v => v == null)) continue;
+    n++;
+    if (Math.abs(vals.reduce((a, v) => a + v, 0) - t) < 0.051) nS++;
+    if (allW && Math.abs(parts.reduce((a, c, k) => a + vals[k] / (cfg.maxes[c] || 100) * cfg.weights[c], 0) - t) < 0.051) nW++;
+  }
+  if (!n) { cfg.totalMode = allW ? 'weighted' : 'sum'; }
+  else if (allW && nW >= n * 0.6 && nW >= nS) cfg.totalMode = 'weighted';
+  else if (nS >= n * 0.6) cfg.totalMode = 'sum';
+  if (cfg.totalMode === 'weighted') cfg.maxes[T] = Math.round(parts.reduce((a, c) => a + cfg.weights[c], 0) * 100) / 100;
+  else if (cfg.totalMode === 'sum') cfg.maxes[T] = parts.reduce((a, c) => a + (cfg.maxes[c] || 0), 0);
+}
+function computeTotal(cfg, values /* {col: string} */) {
+  const T = cfg.scoreCols.find(c => isTotalLabel(cfg.labels[c] || '')); if (T == null || !cfg.totalMode || cfg.totalMode === 'none') return null;
+  const parts = cfg.scoreCols.filter(c => c !== T && !isTotalLabel(cfg.labels[c] || ''));
+  let t = 0; for (const c of parts) { const v = +values[c]; if (!isFinite(v) || values[c] === '') return null; t += cfg.totalMode === 'weighted' ? v / (cfg.maxes[c] || 100) * (cfg.weights?.[c] ?? 0) : v; }
+  return { col: T, value: Math.round(t * 100) / 100 };
+}
+function cleanLabel(h) { return (h || '').replace(/\s*\(\s*만점[^)]*\)\s*/g, ' ').replace(/\s+/g, ' ').trim() || h; }
+function guessWeight(h) { const m = (h || '').match(/(\d+(?:\.\d+)?)\s*%/); return m ? +m[1] : null; }
+const isTotalLabel = l => /총점|합계|총계/.test(norm(l));
+function headerLabel(sd, hr, c) {
+  const own = sd.get(hr, c); let t = own ? own.v.trim() : '';
+  const below = sd.cells.get((hr + 1) + ',' + c); // two-row header: sub label under merged group
+  if (below && below.num == null && sd.cells.get((hr + 1) + ',' + 0) == null) t = t ? t + ' ' + below.v.trim() : below.v.trim();
+  return t.replace(/\s+/g, ' ');
+}
+function guessMax(h) {
+  const t = norm(h); const m = t.match(/\((\d+)점?\)|(\d+)점만점|만점(\d+(?:\.\d+)?)/); if (m) return +(m[1] || m[2] || m[3]);
+  if (/객관/.test(t)) return 80; if (/서술|논술/.test(t)) return 20; return 100;
+}
+function studentRows(sd, cfg) {
+  const out = [];
+  for (let r = cfg.headerRow + 1; r <= sd.maxR; r++) {
+    const n = sd.cells.get(r + ',' + cfg.numCol), nm = sd.cells.get(r + ',' + cfg.nameCol);
+    if (!n || !nm) continue;
+    const num = studentNumber(n), name = nm.v.trim();
+    if (num == null || !name) continue;
+    if (/^(평균|합계|계|총계|최고|최저)$/.test(norm(name))) continue;
+    out.push({ row: r, num, rawNum: n.v.trim(), name, scores: cfg.scoreCols.map(c => { const x = sd.cells.get(r + ',' + c); return x ? x.v : ''; }) });
+  }
+  return out;
+}
+const fmtNum = n => (Math.round(n * 100) / 100).toString();
+/* "4/1", "4-1", "4반 1번", "2-4-01", "1" → "1"  (a 반/번호 typed as a date reads as month/day) */
+function studentNumber(x) {
+  if (x.date) return String(x.day);
+  if (x.num != null) return Number.isInteger(x.num) ? String(x.num) : null;
+  const raw = x.v.trim();
+  if (!/^(\d{1,2}\s*(학년|반|[\/\-.·])\s*){0,2}\d{1,6}\s*번?$/.test(raw)) return null;
+  const m = raw.match(/(\d{1,6})\s*번?$/); return m ? String(+m[1]) : null;
+}
+
+/* ===== patch: put signatures into the original workbook ===== */
+function insertCellInRow(rowXml, col, cellXml) {
+  // rowXml: full <row ...>...</row> or self-closing
+  let m = rowXml.match(/^<row\b([^>]*?)(\/?)>/); let open = '<row' + m[1].replace(/\sspans="[^"]*"/, '') + '>';
+  let inner = m[2] ? '' : rowXml.slice(m[0].length, rowXml.length - 6);
+  const cells = [...inner.matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)];
+  for (const cm of cells) {
+    const ref = attr(' ' + cm[1], 'r'); if (!ref) continue; const c = parseRef(ref).c;
+    if (c === col) return open + inner.slice(0, cm.index) + cellXml + inner.slice(cm.index + cm[0].length) + '</row>';
+    if (c > col) return open + inner.slice(0, cm.index) + cellXml + inner.slice(cm.index) + '</row>';
+  }
+  return open + inner + cellXml + '</row>';
+}
+function setCellValue(rowXml, r, col, val) {
+  const ref = colName(col) + (r + 1);
+  let s = null, f = '';
+  for (const cm of rowXml.matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
+    const a = ' ' + cm[1]; const cr = attr(a, 'r'); if (!cr || parseRef(cr).c !== col) continue;
+    s = attr(a, 's'); const fm = (cm[2] || '').match(/<f\b[^>]*\/>|<f\b[^>]*>[\s\S]*?<\/f>/); f = fm ? fm[0] : '';
+  }
+  if (s == null) s = cellStyleAt(rowXml, col);
+  const sa = s != null ? ` s="${s}"` : '';
+  val = String(val ?? '').trim();
+  let x;
+  if (val === '') x = `<c r="${ref}"${sa}/>`;
+  else if (isFinite(+val)) x = `<c r="${ref}"${sa}>${f}<v>${+val}</v></c>`;
+  else x = f ? `<c r="${ref}"${sa} t="str">${f}<v>${xesc(val)}</v></c>` : `<c r="${ref}"${sa} t="inlineStr"><is><t>${xesc(val)}</t></is></c>`;
+  return insertCellInRow(rowXml, col, x);
+}
+function setColHidden(xml, col, width) {
+  const own = `<col min="${col + 1}" max="${col + 1}" width="${width}" hidden="1" customWidth="1"/>`;
+  if (!/<cols>/.test(xml)) return insertBeforeTags(xml, AFTER_COLS, `<cols>${own}</cols>`);
+  return xml.replace(/<cols>([\s\S]*?)<\/cols>/, (m0, inner) => {
+    const out = []; let mine = own;
+    for (const d of [...inner.matchAll(/<col\b[^>]*?\/>/g)].map(x => x[0])) {
+      const mn = +attr(d, 'min') - 1, mx = +attr(d, 'max') - 1;
+      if (col < mn || col > mx) { out.push(d); continue; }
+      if (mn < col) out.push(d.replace(/\smax="\d+"/, ` max="${col}"`));
+      if (mx > col) out.push(d.replace(/\smin="\d+"/, ` min="${col + 2}"`));
+      mine = d.replace(/\smin="\d+"/, ` min="${col + 1}"`).replace(/\smax="\d+"/, ` max="${col + 1}"`).replace(/\shidden="[^"]*"/, '').replace(/\/>$/, ' hidden="1"/>');
+    }
+    out.push(mine); out.sort((a, b) => +attr(a, 'min') - +attr(b, 'min'));
+    return '<cols>' + out.join('') + '</cols>';
+  });
+}
+function cellStyleAt(rowXml, col) {
+  let best = null, bestC = -1;
+  for (const cm of rowXml.matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) { const a = ' ' + cm[1]; const ref = attr(a, 'r'); if (!ref) continue; const c = parseRef(ref).c; if (c < col && c > bestC) { bestC = c; best = attr(a, 's'); } }
+  return best;
+}
+function editRows(xml, rowsFn) {
+  return xml.replace(/<row\b([^>]*?)(?:\/>|>([\s\S]*?)<\/row>)/g, (full, a) => { const r = +attr(' ' + a, 'r') - 1; const out = rowsFn(r, full); return out == null ? full : out; });
+}
+function insertBeforeTags(xml, tags, snippet) {
+  let pos = -1;
+  for (const t of tags) { const i = xml.search(new RegExp('<' + t + '\\b')); if (i >= 0 && (pos < 0 || i < pos)) pos = i; }
+  if (pos < 0) pos = xml.lastIndexOf('</worksheet>');
+  return xml.slice(0, pos) + snippet + xml.slice(pos);
+}
+const AFTER_DRAWING = ['legacyDrawing', 'legacyDrawingHF', 'drawingHF', 'picture', 'oleObjects', 'controls', 'webPublishItems', 'tableParts', 'extLst'];
+const AFTER_COLS = ['sheetData'];
+const REL_DRAWING = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing';
+const REL_IMAGE = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/image';
+
+function unusedName(zip, pattern) { let i = 1; while (zip.has(pattern.replace('#', i))) i++; return pattern.replace('#', i); }
+function unusedRid(rels) { let i = 1; const ids = new Set(rels.map(r => r.id)); while (ids.has('rId' + i)) i++; return 'rId' + i; }
+function relsXml(rels) { return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' + rels.map(r => `<Relationship Id="${xesc(r.id)}" Type="${xesc(r.type)}" Target="${xesc(r.target)}"${r.mode ? ` TargetMode="${xesc(r.mode)}"` : ''}/>`).join('') + '</Relationships>'; }
+function relTarget(from, to) { // relative path from part `from` to `to`
+  const a = from.split('/'); a.pop(); const b = to.split('/');
+  let i = 0; while (i < a.length && i < b.length - 1 && a[i] === b[i]) i++;
+  return '../'.repeat(a.length - i) + b.slice(i).join('/');
+}
+
+/**
+ * job: { sheet, sd, cfg, students:[{row}], sigs: {row: {bytes:Uint8Array, w, h}}, enlarge:boolean }
+ */
+async function patchWorkbook(wb, jobs) {
+  const zip = wb.zip;
+  let ct = await zip.text('[Content_Types].xml');
+  let wbXml = await zip.text(wb.wbPath); let wbChanged = false; let anyFix = false;
+  for (const job of jobs) {
+    const { sheet, sd, cfg } = job;
+    let xml = await zip.text(sheet.path);
+    let sigCol = cfg.sigCol;
+    if (job.fixes && Object.keys(job.fixes).length) {
+      xml = editRows(xml, (r, full) => { const fx = job.fixes[r]; if (!fx) return null; let out = full; for (const [c, val] of Object.entries(fx)) out = setCellValue(out, r, +c, val); return out; });
+      anyFix = true;
+    }
+    const studentRowSet = new Set(job.students.map(s => s.row));
+    if (sigCol === 'new') {
+      // first column right of the table's used area (header row .. last student)
+      let right = 0; const lastRow = Math.max(...job.students.map(s => s.row), cfg.headerRow);
+      for (const [k] of sd.cells) { const [r, c] = k.split(',').map(Number); if (r >= cfg.headerRow && r <= lastRow && c > right) right = c; }
+      for (const m of sd.merges) if (m.r2 >= cfg.headerRow && m.r1 <= lastRow && m.c2 > right) right = m.c2;
+      sigCol = right + 1;
+      const L = colName(sigCol);
+      const hdrRows = new Set([cfg.headerRow]);
+      // two-row header: merge 서명 over both rows if next row is a sub-header
+      const sub = !studentRowSet.has(cfg.headerRow + 1) && [...sd.cells.keys()].some(k => k.startsWith((cfg.headerRow + 1) + ','));
+      if (sub) hdrRows.add(cfg.headerRow + 1);
+      xml = editRows(xml, (r, full) => {
+        if (!hdrRows.has(r) && !studentRowSet.has(r)) return null;
+        const s = cellStyleAt(full, sigCol); const sa = s ? ` s="${s}"` : '';
+        const cx = r === cfg.headerRow ? `<c r="${L}${r + 1}"${sa} t="inlineStr"><is><t>서명</t></is></c>` : `<c r="${L}${r + 1}"${sa}/>`;
+        return insertCellInRow(full, sigCol, cx);
+      });
+      if (sub) {
+        const mc = `<mergeCell ref="${L}${cfg.headerRow + 1}:${L}${cfg.headerRow + 2}"/>`;
+        if (/<mergeCells\b/.test(xml)) xml = xml.replace(/<mergeCells\b([^>]*?)(?:count="(\d+)")?([^>]*)>/, (m0) => m0.replace(/count="(\d+)"/, (x, n) => `count="${+n + 1}"`)).replace(/<\/mergeCells>/, mc + '</mergeCells>');
+        else xml = insertBeforeTags(xml, ['phoneticPr', 'conditionalFormatting', 'dataValidations', 'hyperlinks', 'printOptions', 'pageMargins', 'pageSetup', 'headerFooter', 'rowBreaks', 'colBreaks', 'drawing', ...AFTER_DRAWING], `<mergeCells count="1">${mc}</mergeCells>`);
+      }
+      // column width
+      const colXml = `<col min="${sigCol + 1}" max="${sigCol + 1}" width="14.63" customWidth="1"/>`;
+      if (/<cols>/.test(xml)) {
+        // remove/limit any existing col def covering sigCol
+        xml = xml.replace(/<cols>([\s\S]*?)<\/cols>/, (m0, inner) => {
+          const defs = [...inner.matchAll(/<col\b[^>]*?\/>/g)].map(x => x[0]);
+          const out = [];
+          for (const d of defs) {
+            const mn = +attr(d, 'min') - 1, mx = +attr(d, 'max') - 1;
+            if (sigCol < mn || sigCol > mx) { out.push(d); continue; }
+            if (mn < sigCol) out.push(d.replace(/\smax="\d+"/, ` max="${sigCol}"`));
+            if (mx > sigCol) out.push(d.replace(/\smin="\d+"/, ` min="${sigCol + 2}"`));
+          }
+          out.push(colXml);
+          out.sort((a, b) => +attr(a, 'min') - +attr(b, 'min'));
+          return '<cols>' + out.join('') + '</cols>';
+        });
+      } else xml = insertBeforeTags(xml, AFTER_COLS, `<cols>${colXml}</cols>`);
+      xml = xml.replace(/<dimension ref="([A-Z]+\d+):?([A-Z]*)(\d*)"\s*\/>/, (m0, a, bc, br) => { if (!bc) return m0; return colIndex(bc) < sigCol ? `<dimension ref="${a}:${L}${br}"/>` : m0; });
+      // extend print area
+      wbXml = wbXml.replace(/<definedName\b([^>]*)>([^<]*)<\/definedName>/g, (m0, a, body) => {
+        if (attr(a, 'name') !== '_xlnm.Print_Area' || attr(a, 'localSheetId') !== String(sheet.localId)) return m0;
+        const nb = body.replace(/(:\$?)([A-Z]+)(\$?\d+)/g, (x, p, cl, rr) => colIndex(cl) < sigCol ? p + L + rr : x);
+        if (nb !== body) wbChanged = true; return `<definedName${a}>${nb}</definedName>`;
+      });
+      job.newSigCol = sigCol;
+      // keep the widened table on one page width
+      if (/<sheetPr\b[^>]*\/>/.test(xml)) xml = xml.replace(/<sheetPr\b([^>]*)\/>/, '<sheetPr$1></sheetPr>');
+      if (/<sheetPr\b/.test(xml)) {
+        if (/<pageSetUpPr\b/.test(xml)) xml = xml.replace(/<pageSetUpPr\b([^>]*?)\/>/, (m0, a) => '<pageSetUpPr' + a.replace(/\sfitToPage="[^"]*"/, '') + ' fitToPage="1"/>');
+        else xml = xml.replace(/<\/sheetPr>/, '<pageSetUpPr fitToPage="1"/></sheetPr>');
+      } else xml = xml.replace(/(<worksheet\b[^>]*>)/, '$1<sheetPr><pageSetUpPr fitToPage="1"/></sheetPr>');
+      if (/<pageSetup\b/.test(xml)) xml = xml.replace(/<pageSetup\b([^>]*?)\/?>/, (m0, a) => '<pageSetup' + a.replace(/\s(fitToWidth|fitToHeight)="[^"]*"/g, '') + ' fitToWidth="1" fitToHeight="0"' + (m0.endsWith('/>') ? '/>' : '>'));
+      else xml = insertBeforeTags(xml, ['headerFooter', 'rowBreaks', 'colBreaks', 'customProperties', 'cellWatches', 'ignoredErrors', 'smartTags', 'drawing', ...AFTER_DRAWING], '<pageSetup fitToWidth="1" fitToHeight="0"/>');
+    }
+    // columns the teacher left out of printing: hide them (data stays in the file)
+    for (const hc of (cfg.hideCols || [])) if (hc !== sigCol && !cfg.scoreCols.includes(hc)) xml = setColHidden(xml, hc, sd.colW(hc));
+    // row heights
+    const minPt = 26;
+    if (job.enlarge) {
+      xml = editRows(xml, (r, full) => {
+        if (!studentRowSet.has(r)) return null;
+        const ht = sd.rowPx(r) * 3 / 4; if (ht >= minPt) return null;
+        return full.replace(/^<row\b([^>]*?)(\/?)>/, (m0, a, sl) => '<row' + a.replace(/\sht="[^"]*"/, '').replace(/\scustomHeight="[^"]*"/, '') + ` ht="${minPt}" customHeight="1"` + sl + '>');
+      });
+    }
+    const rowPx = r => (job.enlarge && sd.rowPx(r) * 3 / 4 < minPt && studentRowSet.has(r)) ? Math.round(minPt * 4 / 3) : sd.rowPx(r);
+    const colPx = c => (c === job.newSigCol ? Math.round(14.63 * 7) : sd.colPx(c));
+    const rowsWithSig = Object.keys(job.sigs).map(Number);
+    if (!rowsWithSig.length) { zip.set(sheet.path, xml); continue; }
+
+    // drawing part
+    const sRelsPath = relsPathFor(sheet.path);
+    const sRels = parseRels(await zip.text(sRelsPath));
+    let dRel = sRels.find(r => r.type === REL_DRAWING);
+    let dPath, dXml, dRels;
+    if (dRel) { dPath = resolvePath(sheet.path, dRel.target); dXml = await zip.text(dPath); dRels = parseRels(await zip.text(relsPathFor(dPath))); }
+    else {
+      dPath = unusedName(zip, 'xl/drawings/drawing#.xml');
+      dXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"></xdr:wsDr>';
+      dRels = [];
+      const rid = unusedRid(sRels);
+      sRels.push({ id: rid, type: REL_DRAWING, target: relTarget(sheet.path, dPath) });
+      zip.set(sRelsPath, relsXml(sRels));
+      if (!/xmlns:r=/.test(xml.slice(0, xml.indexOf('>', xml.indexOf('<worksheet'))))) xml = xml.replace(/<worksheet\b/, '<worksheet xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"');
+      xml = insertBeforeTags(xml, AFTER_DRAWING, `<drawing r:id="${rid}"/>`);
+      ct = ct.replace('</Types>', `<Override PartName="/${dPath}" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/></Types>`);
+    }
+    const root = dXml.match(/<([A-Za-z0-9_]+):wsDr\b[^>]*>/); const P = root ? root[1] : 'xdr';
+    let rootTag = root[0];
+    if (!/xmlns:a=/.test(rootTag)) rootTag = rootTag.replace(/>$/, ' xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main">');
+    if (!/xmlns:r=/.test(rootTag)) rootTag = rootTag.replace(/>$/, ' xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">');
+    dXml = dXml.replace(root[0], rootTag);
+    let maxId = 0; for (const m of dXml.matchAll(/<[A-Za-z0-9_]+:cNvPr\b[^>]*\sid="(\d+)"/g)) maxId = Math.max(maxId, +m[1]);
+    let anchors = '';
+    const EMU = 9525;
+    for (const r of rowsWithSig.sort((a, b) => a - b)) {
+      const sig = job.sigs[r];
+      // cell box (merged-aware)
+      let c1 = sigCol, c2 = sigCol, r1 = r, r2 = r;
+      for (const m of sd.merges) if (r >= m.r1 && r <= m.r2 && sigCol >= m.c1 && sigCol <= m.c2) { c1 = m.c1; c2 = m.c2; r1 = m.r1; r2 = m.r2; }
+      let W = 0; for (let c = c1; c <= c2; c++) W += colPx(c);
+      let H = 0; for (let q = r1; q <= r2; q++) H += rowPx(q);
+      const padX = 4, padY = 2;
+      const s = Math.min((W - padX * 2) / sig.w, (H - padY * 2) / sig.h);
+      const w = Math.max(8, Math.floor(sig.w * s)), h = Math.max(4, Math.floor(sig.h * s));
+      let offX = Math.max(0, Math.floor((W - w) / 2)), offY = Math.max(0, Math.floor((H - h) / 2));
+      let fc = c1; while (fc < c2 && offX >= colPx(fc)) { offX -= colPx(fc); fc++; }
+      let fr = r1; while (fr < r2 && offY >= rowPx(fr)) { offY -= rowPx(fr); fr++; }
+      const media = unusedName(zip, 'xl/media/signature#.png');
+      zip.set(media, sig.bytes);
+      const iid = unusedRid(dRels); dRels.push({ id: iid, type: REL_IMAGE, target: relTarget(dPath, media) });
+      const id = ++maxId;
+      anchors += `<${P}:oneCellAnchor><${P}:from><${P}:col>${fc}</${P}:col><${P}:colOff>${offX * EMU}</${P}:colOff><${P}:row>${fr}</${P}:row><${P}:rowOff>${offY * EMU}</${P}:rowOff></${P}:from><${P}:ext cx="${w * EMU}" cy="${h * EMU}"/>`
+        + `<${P}:pic><${P}:nvPicPr><${P}:cNvPr id="${id}" name="서명 ${id}"/><${P}:cNvPicPr><a:picLocks noChangeAspect="1"/></${P}:cNvPicPr></${P}:nvPicPr>`
+        + `<${P}:blipFill><a:blip r:embed="${iid}"/><a:stretch><a:fillRect/></a:stretch></${P}:blipFill>`
+        + `<${P}:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="${w * EMU}" cy="${h * EMU}"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></${P}:spPr></${P}:pic><${P}:clientData/></${P}:oneCellAnchor>`;
+    }
+    if (/<\/[A-Za-z0-9_]+:wsDr>/.test(dXml)) dXml = dXml.replace(new RegExp(`</${P}:wsDr>`), anchors + `</${P}:wsDr>`);
+    else dXml = dXml.replace(/\/>\s*$/, '>' + anchors + `</${P}:wsDr>`);
+    zip.set(dPath, dXml);
+    zip.set(relsPathFor(dPath), relsXml(dRels));
+    zip.set(sheet.path, xml);
+  }
+  if (!/Extension="png"/i.test(ct)) ct = ct.replace(/<Types\b[^>]*>/, m => m + '<Default Extension="png" ContentType="image/png"/>');
+  zip.set('[Content_Types].xml', ct);
+  if (anyFix) {
+    if (/<calcPr\b/.test(wbXml)) wbXml = wbXml.replace(/<calcPr\b([^>]*?)(\/?)>/, (m0, a, sl) => '<calcPr' + a.replace(/\sfullCalcOnLoad="[^"]*"/, '') + ' fullCalcOnLoad="1"' + sl + '>');
+    else {
+      const tags = ['oleSize', 'customWorkbookViews', 'pivotCaches', 'smartTagPr', 'smartTagTypes', 'webPublishing', 'fileRecoveryPr', 'webPublishObjects', 'extLst'];
+      let pos = -1; for (const t of tags) { const i = wbXml.search(new RegExp('<' + t + '\\b')); if (i >= 0 && (pos < 0 || i < pos)) pos = i; }
+      if (pos < 0) pos = wbXml.lastIndexOf('</workbook>');
+      wbXml = wbXml.slice(0, pos) + '<calcPr fullCalcOnLoad="1"/>' + wbXml.slice(pos);
+    }
+    wbChanged = true;
+  }
+  if (wbChanged) zip.set(wb.wbPath, wbXml);
+  return zip.write();
+}
+
+/* ===== sample workbook ===== */
+async function buildSampleXlsx() {
+  const z = new Zip();
+  const names = ['김민준', '이서연', '박도윤', '최하은', '정시우', '강지아', '조예준', '윤수아', '장주원', '임채원', '한지호', '오다인', '서건우', '신윤서', '권하준', '황지유'];
+  const rnd = (i, k) => 60 + ((i * 37 + k * 53) % 41);
+  const s = (ref, st, text) => `<c r="${ref}" s="${st}" t="inlineStr"><is><t>${xesc(text)}</t></is></c>`;
+  const n = (ref, st, v) => `<c r="${ref}" s="${st}"><v>${v}</v></c>`;
+  let rows = `<row r="1" ht="24" customHeight="1">${s('A1', 1, '2026학년도 2학기 2학년 수학 수행평가 점수 확인표 (예시)')}</row>`;
+  rows += `<row r="2">${s('A2', 0, '2학년 ○반 · 교과 담당 ○○○')}</row>`;
+  rows += `<row r="3" ht="20" customHeight="1">${['번호', '이름', '영역1 문제해결', '영역2 탐구보고서', '영역3 수학일지', '총점(300)'].map((h, i) => s(colName(i) + '3', 2, h)).join('')}</row>`;
+  names.forEach((nm, i) => {
+    const r = i + 4; const a = rnd(i, 1), b = rnd(i, 2), c = rnd(i, 3);
+    rows += `<row r="${r}" ht="20" customHeight="1">${n('A' + r, 3, i + 1)}${s('B' + r, 3, nm)}${n('C' + r, 3, a)}${n('D' + r, 3, b)}${n('E' + r, 3, c)}<c r="F${r}" s="4"><f>SUM(C${r}:E${r})</f><v>${a + b + c}</v></c></row>`;
+  });
+  const last = names.length + 3;
+  z.set('[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>');
+  z.set('_rels/.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>');
+  z.set('xl/workbook.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="2학년 예시반" sheetId="1" r:id="rId1"/></sheets><definedNames><definedName name="_xlnm.Print_Area" localSheetId="0">'2학년 예시반'!$A$1:$F$${last}</definedName></definedNames></workbook>`);
+  z.set('xl/_rels/workbook.xml.rels', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>');
+  z.set('xl/styles.xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="1"><numFmt numFmtId="164" formatCode="0.0"/></numFmts><fonts count="3"><font><sz val="11"/><name val="맑은 고딕"/><family val="3"/><charset val="129"/></font><font><b/><sz val="14"/><name val="맑은 고딕"/><family val="3"/><charset val="129"/></font><font><b/><sz val="11"/><name val="맑은 고딕"/><family val="3"/><charset val="129"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FFE7ECF3"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left style="thin"><color auto="1"/></left><right style="thin"><color auto="1"/></right><top style="thin"><color auto="1"/></top><bottom style="thin"><color auto="1"/></bottom><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="5"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="0" fontId="2" fillId="2" borderId="1" xfId="0" applyFont="1" applyFill="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf><xf numFmtId="0" fontId="0" fillId="0" borderId="1" xfId="0" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf><xf numFmtId="0" fontId="2" fillId="0" borderId="1" xfId="0" applyFont="1" applyBorder="1" applyAlignment="1"><alignment horizontal="center" vertical="center"/></xf></cellXfs><cellStyles count="1"><cellStyle name="표준" xfId="0" builtinId="0"/></cellStyles></styleSheet>');
+  z.set('xl/worksheets/sheet1.xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><dimension ref="A1:F${last}"/><sheetFormatPr defaultRowHeight="16.5"/><cols><col min="1" max="1" width="7" customWidth="1"/><col min="2" max="2" width="11" customWidth="1"/><col min="3" max="5" width="15" customWidth="1"/><col min="6" max="6" width="9" customWidth="1"/></cols><sheetData>${rows}</sheetData><mergeCells count="2"><mergeCell ref="A1:G1"/><mergeCell ref="A2:G2"/></mergeCells><pageMargins left="0.5" right="0.5" top="0.6" bottom="0.6" header="0.3" footer="0.3"/><pageSetup paperSize="9" orientation="portrait"/></worksheet>`);
+  return new Uint8Array(await (await z.write()).arrayBuffer());
+}
+
+</script>
+<script>
+(() => {
+const $ = s => document.querySelector(s);
+const el = (tag, props = {}, ...kids) => { const e = document.createElement(tag); for (const [k, v] of Object.entries(props)) { if (k === 'class') e.className = v; else if (k === 'text') e.textContent = v; else if (k.startsWith('on')) e.addEventListener(k.slice(2), v); else if (v !== false && v != null) e.setAttribute(k, v === true ? '' : v); } for (const c of kids.flat()) if (c != null) e.append(c); return e; };
+const views = ['v-start', 'v-setup', 'v-kiosk', 'v-student', 'v-done'];
+function show(id) { for (const v of views) $('#' + v).hidden = v !== id; window.scrollTo(0, 0); }
+
+/* ---------- state ---------- */
+const blankWork = () => ({ fileName: '', bytes: null, sample: false, wb: null, sheetIdx: 0, sds: {}, cfg: {}, sigs: {}, objs: {}, fixes: {}, titles: {}, enlarge: false });
+let works = [];          // every opened file, each with its own signatures
+let S = blankWork();     // the file on screen
+const G = { useLock: false, pin: null };
+let students = [];
+
+/* ---------- persistence (this device only) ---------- */
+const DB_NAME = 'score-sign', STORE = 'work';
+function idb() { return new Promise((res, rej) => { try { const r = indexedDB.open(DB_NAME, 1); r.onupgradeneeded = () => r.result.createObjectStore(STORE); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); } catch (e) { rej(e); } }); }
+async function idbGet() { try { const db = await idb(); return await new Promise(res => { const q = db.transaction(STORE).objectStore(STORE).get('cur'); q.onsuccess = () => res(q.result || null); q.onerror = () => res(null); }); } catch { return null; } }
+async function idbPut(v) { try { const db = await idb(); db.transaction(STORE, 'readwrite').objectStore(STORE).put(v, 'cur'); } catch {} }
+async function idbDel() { try { const db = await idb(); db.transaction(STORE, 'readwrite').objectStore(STORE).delete('cur'); } catch {} }
+let saveT = 0;
+const packWork = w => ({ fileName: w.fileName, bytes: w.bytes, sample: w.sample, sheetIdx: w.sheetIdx, cfg: w.cfg, sigs: w.sigs, objs: w.objs, fixes: w.fixes, titles: w.titles, enlarge: w.enlarge });
+function persist() { clearTimeout(saveT); saveT = setTimeout(() => { if (!works.length) { idbDel(); return; } idbPut({ v: 2, active: Math.max(0, works.indexOf(S)), useLock: G.useLock, works: works.map(packWork), at: Date.now() }); if (!$('#v-setup').hidden) renderTabs(); }, 300); }
+function workCounts(w) {
+  let total = 0, signed = 0, obj = 0;
+  for (const i of Object.keys(w.cfg)) { if (!w.sds[i]) continue; const prev = S; S = w; try { for (const s of rosterOf(+i)) { const st = statusOf(s, +i); if (Object.keys(w.sigs[i] || {}).length || +i === w.sheetIdx) { total++; if (st === 'signed') signed++; if (st === 'objection') obj++; } } } finally { S = prev; } }
+  return { total, signed, obj };
+}
+function renderTabs() {
+  const box = $('#tabs'); box.replaceChildren();
+  works.forEach((w, i) => {
+    const c = workCounts(w);
+    box.append(el('div', { class: 'tab' + (w === S ? ' on' : '') },
+      el('button', { class: 'go', title: w.fileName, onclick: () => switchWork(i) }, el('b', { text: w.fileName.replace(/\.xlsx$/i, '') }), el('span', { text: `서명 ${c.signed}/${c.total}` + (c.obj ? ` · 이의 ${c.obj}` : '') })),
+      el('button', { class: 'x', 'aria-label': w.fileName + ' 닫기', text: '×', onclick: () => closeWork(i) })));
+  });
+  box.append(el('button', { class: 'tabadd', text: '+ 파일 추가', onclick: () => { fileMode = 'new'; $('#file').value = ''; $('#file').click(); } }));
+  if (drive.ready) box.append(el('button', { class: 'tabadd', text: '+ 구글 드라이브', onclick: () => drive.pick('new') }));
+}
+function switchWork(i) { S = works[i]; renderSetup(); renderTabs(); show('v-setup'); persist(); }
+async function closeWork(i) {
+  const w = works[i]; const n = Object.values(w.sigs).reduce((a, o) => a + Object.keys(o).length, 0);
+  if (!(await confirmBox(`${w.fileName} 닫기`, n ? `이 파일에서 받은 서명 ${n}개도 이 기기에서 지워져요. 필요하면 먼저 엑셀이나 PDF로 저장하세요.` : '이 파일을 목록에서 닫을까요?', '닫기', '취소', true))) return;
+  works.splice(i, 1);
+  if (!works.length) { S = blankWork(); persist(); show('v-start'); return; }
+  S = works[Math.min(i, works.length - 1)]; switchWork(works.indexOf(S));
+}
+
+/* ---------- toast / modal ---------- */
+let toastT = 0;
+function toast(msg, ms = 2400) { const t = $('#toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => t.hidden = true, ms); }
+let modalClose = null;
+function modal(build) {
+  if (modalClose) modalClose(null);
+  return new Promise(resolve => {
+    const d = $('#dialog'); d.replaceChildren(); d.classList.remove('shake', 'wide');
+    const close = v => { if (modalClose !== close) return; modalClose = null; $('#modal').hidden = true; resolve(v); };
+    modalClose = close;
+    build(d, close); $('#modal').hidden = false;
+    const f = d.querySelector('[data-focus]'); if (f) f.focus();
+  });
+}
+function confirmBox(title, body, yes = '확인', no = '취소', danger = false) {
+  return modal((d, close) => d.append(
+    el('h3', { text: title }), body ? el('p', { text: body }) : null,
+    el('div', { class: 'btns' }, el('button', { class: 'btn', text: no, onclick: () => close(false) }), el('button', { class: 'btn ' + (danger ? 'stamp' : 'primary'), text: yes, 'data-focus': true, onclick: () => close(true) }))));
+}
+function pinPad(title, sub, check) {
+  return modal((d, close) => {
+    let v = '';
+    const dots = el('div', { class: 'dots' }, [0, 1, 2, 3].map(() => el('i')));
+    const paint = () => [...dots.children].forEach((i, k) => i.classList.toggle('f', k < v.length));
+    const press = k => {
+      if (k === 'del') v = v.slice(0, -1); else if (v.length < 4) v += k;
+      paint();
+      if (v.length === 4) setTimeout(() => {
+        if (!check || check(v)) close(v);
+        else { d.classList.remove('shake'); void d.offsetWidth; d.classList.add('shake'); v = ''; paint(); }
+      }, 120);
+    };
+    const keys = el('div', { class: 'keypad' }, ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'cancel', '0', 'del'].map(k =>
+      el('button', { type: 'button', text: k === 'del' ? '⌫' : k === 'cancel' ? '취소' : k, style: k === 'cancel' ? 'font-size:16px' : null, onclick: () => k === 'cancel' ? close(null) : press(k) })));
+    d.append(el('h3', { text: title }), sub ? el('p', { text: sub }) : null, dots, keys);
+  });
+}
+
+/* ---------- loading ---------- */
+async function loadBytes(bytes, name, sample, restore, quiet) {
+  $('#start-err').hidden = true;
+  const prev = S;
+  try {
+    const wb = await openWorkbook(bytes.slice().buffer);
+    if (!wb.sheets.length) throw new Error('NO_SHEET');
+    S = Object.assign(blankWork(), { fileName: name, bytes, sample, wb });
+    if (restore) Object.assign(S, { sheetIdx: restore.sheetIdx || 0, cfg: restore.cfg || {}, sigs: restore.sigs || {}, objs: restore.objs || {}, fixes: restore.fixes || {}, titles: restore.titles || {}, enlarge: !!restore.enlarge });
+    else { const firstVisible = wb.sheets.findIndex(s => !s.hidden); S.sheetIdx = firstVisible < 0 ? 0 : firstVisible; }
+    if (S.sheetIdx >= wb.sheets.length) S.sheetIdx = 0;
+    // sheets that already hold work need their data for counts and export
+    for (const i of Object.keys(S.cfg)) if (+i < wb.sheets.length) await sheetData(+i);
+    await selectSheet(S.sheetIdx);
+    works.push(S);
+    if (!quiet) { renderTabs(); show('v-setup'); persist(); }
+    return true;
+  } catch (e) {
+    S = prev;
+    if (works.length) { toast('이 파일은 열 수 없어요. .xlsx(엑셀) 파일인지, 암호가 걸려 있지 않은지 확인해 주세요.', 4000); return false; }
+    console.error(e);
+    const msg = e.message === 'NOT_ZIP' || e.message === 'BAD_ZIP' || e.message === 'NOT_XLSX'
+      ? '이 파일은 열 수 없어요. 엑셀 97-2003(.xls) 파일이나 암호가 걸린 파일이면, 엑셀에서 암호를 풀고 [다른 이름으로 저장 → Excel 통합 문서(.xlsx)]로 저장한 뒤 다시 올려 주세요.'
+      : '파일을 읽는 중 문제가 생겼어요. 엑셀에서 .xlsx로 다시 저장한 뒤 올려 주세요.';
+    const box = $('#start-err'); box.textContent = msg; box.hidden = false; show('v-start');
+    return false;
+  }
+}
+async function sheetData(i) { if (!S.sds[i]) S.sds[i] = await readSheet(S.wb, S.wb.sheets[i]); return S.sds[i]; }
+async function selectSheet(i) {
+  S.sheetIdx = i;
+  const sd = await sheetData(i);
+  if (!S.cfg[i]) S.cfg[i] = guessConfig(sd);
+  else if (S.cfg[i].totalMode === undefined) { const c = S.cfg[i]; c.weights = c.weights || {}; c.hideCols = c.hideCols || []; detectTotal(sd, c); }
+  if (!S.sigs[i]) S.sigs[i] = {};
+  if (!S.objs[i]) S.objs[i] = {};
+  if (!S.fixes[i]) S.fixes[i] = {};
+  if (S.titles[i] == null) S.titles[i] = defaultTitle(i);
+  renderSetup();
+}
+function defaultTitle(i) {
+  const sd = S.sds[i]; const cfg = S.cfg[i];
+  for (let r = 0; r < cfg.headerRow; r++) for (let c = 0; c <= sd.maxC; c++) { const x = sd.cells.get(r + ',' + c); if (x && x.v.trim().length >= 6) return x.v.trim(); }
+  return S.wb.sheets.length > 1 ? S.wb.sheets[i].name : S.fileName.replace(/\.xlsx$/i, '');
+}
+
+/* ---------- setup render ---------- */
+const cur = () => ({ sd: S.sds[S.sheetIdx], cfg: S.cfg[S.sheetIdx], sigs: S.sigs[S.sheetIdx], objs: S.objs[S.sheetIdx], fixes: S.fixes[S.sheetIdx] });
+const fmtLike = (v, cell) => { v = String(v).trim(); const d = cell?.dec; return v !== '' && isFinite(+v) && d != null ? (+v).toFixed(d) : v; };
+/* roster with teacher corrections applied; s.map = {col: value} */
+function rosterOf(i = S.sheetIdx) {
+  const sd = S.sds[i], cfg = S.cfg[i], fx = S.fixes[i] || {};
+  return studentRows(sd, cfg).map(s => {
+    const f = fx[s.row] || {}; const map = {}; const orig = {};
+    cfg.scoreCols.forEach((c, k) => { orig[c] = s.scores[k]; map[c] = f[c] != null ? fmtLike(f[c], sd.cells.get(s.row + ',' + c)) : s.scores[k]; });
+    return { ...s, map, orig, scores: cfg.scoreCols.map(c => map[c]), fixed: new Set(Object.keys(f).map(Number)) };
+  });
+}
+function statusOf(s, i = S.sheetIdx) {
+  if (S.sigs[i]?.[s.row]) return 'signed';
+  const o = S.objs[i]?.[s.row];
+  return o ? (o.resolved ? 'resolved' : 'objection') : 'waiting';
+}
+const normV = v => { v = String(v ?? '').trim(); return v !== '' && isFinite(+v) ? String(+v) : v; };
+const sameScores = (a, b, cols) => cols.every(c => normV(a?.[c]) === normV(b?.[c]));
+const colLabel = (sd, cfg, c) => { const h = headerLabel(sd, cfg.headerRow, c); return colName(c) + '열' + (h ? ' · ' + h : ''); };
+function fillSelect(sel, opts, value) { sel.replaceChildren(...opts.map(([v, t]) => el('option', { value: String(v), text: t }))); sel.value = String(value); }
+
+function renderSetup() {
+  const { sd, cfg } = cur();
+  $('#fname').textContent = S.fileName; $('#sample-tag').hidden = !S.sample;
+  $('#f-sheet').hidden = S.wb.sheets.length < 2;
+  fillSelect($('#sel-sheet'), S.wb.sheets.map((s, i) => [i, s.name + (s.hidden ? ' (숨김)' : '') + (Object.keys(S.sigs[i] || {}).length ? ` · 서명 ${Object.keys(S.sigs[i]).length}` : '')]), S.sheetIdx);
+  $('#in-title').value = S.titles[S.sheetIdx] || '';
+  const hdrOpts = []; for (let r = 0; r <= Math.min(sd.maxR, 40); r++) { const t = []; for (let c = 0; c <= sd.maxC && t.length < 4; c++) { const x = sd.cells.get(r + ',' + c); if (x) t.push(x.v.trim()); } hdrOpts.push([r, `${r + 1}행 ${t.length ? '· ' + t.join(' / ').slice(0, 40) : '(빈 행)'}`]); }
+  fillSelect($('#sel-hdr'), hdrOpts, cfg.headerRow);
+  const colOpts = []; for (let c = 0; c <= sd.maxC; c++) colOpts.push([c, colLabel(sd, cfg, c)]);
+  fillSelect($('#sel-num'), colOpts, cfg.numCol);
+  fillSelect($('#sel-name'), colOpts, cfg.nameCol);
+  fillSelect($('#sel-sig'), [['new', '표 오른쪽에 “서명” 열 새로 만들기'], ...colOpts.filter(([c]) => c !== cfg.numCol && c !== cfg.nameCol)], cfg.sigCol);
+  $('#chk-enlarge').checked = S.enlarge; $('#chk-lock').checked = G.useLock;
+  $('#struct-sum').textContent = `${cfg.headerRow + 1}행이 제목줄 · 번호 ${colName(cfg.numCol)}열 · 이름 ${colName(cfg.nameCol)}열`;
+  // score list
+  const list = $('#scorelist'); list.replaceChildren();
+  for (let c = 0; c <= sd.maxC; c++) {
+    if (c === cfg.numCol || c === cfg.nameCol || c === cfg.sigCol) continue;
+    const h = headerLabel(sd, cfg.headerRow, c);
+    let any = false; for (let r = cfg.headerRow + 1; r <= sd.maxR && !any; r++) if (sd.cells.get(r + ',' + c)) any = true;
+    if (!h && !any) continue;
+    const on = cfg.scoreCols.includes(c);
+    const cb = el('input', { type: 'checkbox', id: 'sc-' + c, 'aria-label': colName(c) + '열 표시', checked: on });
+    const lab = el('input', { type: 'text', id: 'sl-' + c, value: cfg.labels[c] ?? cleanLabel(h), placeholder: cleanLabel(h) || colName(c) + '열', disabled: !on });
+    const mx = el('input', { type: 'number', id: 'sm-' + c, inputmode: 'numeric', value: cfg.maxes[c] ?? '', placeholder: '-', disabled: !on });
+    cb.addEventListener('change', () => {
+      if (cb.checked) { cfg.scoreCols.push(c); cfg.scoreCols.sort((a, b) => a - b); if (cfg.labels[c] == null) cfg.labels[c] = cleanLabel(h) || colName(c) + '열'; if (cfg.maxes[c] == null) cfg.maxes[c] = guessMax(h); cfg.weights = cfg.weights || {}; const w = guessWeight(h); if (w != null) cfg.weights[c] = w; }
+      else cfg.scoreCols = cfg.scoreCols.filter(x => x !== c);
+      detectTotal(sd, cfg);
+      renderSetup(); persist();
+    });
+    lab.addEventListener('input', () => { cfg.labels[c] = lab.value; renderRoster(); persist(); });
+    mx.addEventListener('input', () => { cfg.maxes[c] = mx.value === '' ? null : +mx.value; persist(); });
+    list.append(el('div', { class: 'scoreitem' + (on ? ' on' : '') }, cb, el('span', { class: 'col', text: colName(c) }), lab, mx));
+  }
+  if (!list.children.length) list.append(el('div', { class: 'hint', text: '표시할 수 있는 열이 없어요. 머리글 행을 확인해 주세요.' }));
+  cfg.hideCols = cfg.hideCols || [];
+  const hl = $('#hidelist'); hl.replaceChildren();
+  for (let c = 0; c <= sd.maxC; c++) {
+    if (cfg.scoreCols.includes(c) || c === cfg.sigCol) continue;
+    let h = headerLabel(sd, cfg.headerRow, c);
+    if (!h) { let any = false; for (let r = 0; r <= sd.maxR && !any; r++) if (sd.cells.get(r + ',' + c)) any = true; if (!any) continue; h = '(제목 없음)'; }
+    const on = cfg.hideCols.includes(c);
+    const cb = el('input', { type: 'checkbox', id: 'hide-' + c, checked: on, onchange: () => { cfg.hideCols = cb.checked ? [...cfg.hideCols, c] : cfg.hideCols.filter(x => x !== c); renderSetup(); persist(); } });
+    if (c === cfg.numCol || c === cfg.nameCol) h += c === cfg.numCol ? ' (번호)' : ' (이름)';
+    hl.append(el('label', { class: 'hidechip' + (on ? ' on' : ''), for: 'hide-' + c, title: h }, cb, el('span', { text: colName(c) + ' · ' + cleanLabel(h) })));
+  }
+  renderPreview(); renderRoster();
+  if (!students.length) $('#d-struct').open = true;
+  renderTabs();
+}
+
+function renderPreview() {
+  const { sd, cfg } = cur();
+  const maxC = Math.min(sd.maxC + (cfg.sigCol === 'new' ? 1 : 0), 30);
+  students = studentRows(sd, cfg);
+  const studentSet = new Set(students.map(s => s.row));
+  const lastRow = Math.min(sd.maxR, Math.max(cfg.headerRow + 12, 14), 80);
+  const newSig = cfg.sigCol === 'new' ? Math.min(sd.maxC + 1, maxC) : -1;
+  let sigColShown = cfg.sigCol === 'new' ? (() => { let right = 0; const lr = students.length ? students[students.length - 1].row : cfg.headerRow; for (const [k] of sd.cells) { const [r, c] = k.split(',').map(Number); if (r >= cfg.headerRow && r <= lr && c > right) right = c; } return right + 1; })() : cfg.sigCol;
+  const hid = new Set(cfg.hideCols || []);
+  const cls = c => (c === cfg.numCol || c === cfg.nameCol ? 'k-id' : cfg.scoreCols.includes(c) ? 'k-score' : c === sigColShown ? 'k-sig' : '') + (hid.has(c) ? ' k-hide' : '');
+  const shownC = Math.max(maxC, sigColShown);
+  const head = el('tr', {}, el('th', { class: 'rh' }), [...Array(shownC + 1).keys()].map(c => el('th', { text: colName(c) })));
+  const body = [];
+  for (let r = 0; r <= lastRow; r++) {
+    const tr = el('tr', { class: r === cfg.headerRow ? 'hdr' : (r > cfg.headerRow && !studentSet.has(r) ? 'dim' : '') },
+      el('th', { class: 'rh', text: r + 1, title: '이 행을 머리글로', onclick: () => setHeader(r) }));
+    for (let c = 0; c <= shownC; c++) {
+      const x = sd.cells.get(r + ',' + c);
+      let t = x ? x.v : '';
+      if (c === sigColShown && cfg.sigCol === 'new' && r === cfg.headerRow) t = '서명 (새 열)';
+      const k = (r === cfg.headerRow || studentSet.has(r)) ? cls(c) : (hid.has(c) ? 'k-hide' : '');
+      tr.append(el('td', { class: k, text: t, title: t }));
+    }
+    body.push(tr);
+  }
+  $('#preview').replaceChildren(el('table', {}, el('thead', {}, head), el('tbody', {}, body)));
+}
+function setHeader(r) {
+  const sd = S.sds[S.sheetIdx];
+  const g = guessConfig(sd, r);
+  S.cfg[S.sheetIdx] = g; S.titles[S.sheetIdx] = S.titles[S.sheetIdx] || defaultTitle(S.sheetIdx);
+  renderSetup(); persist();
+}
+function scoreText(v) { return v === '' || v == null ? '–' : v; }
+function renderRoster() {
+  const { cfg, sigs, objs } = cur();
+  students = rosterOf();
+  const cnt = { signed: 0, objection: 0, resolved: 0, waiting: 0 };
+  students.forEach(s => cnt[statusOf(s)]++);
+  $('#meter-t').textContent = `서명 ${cnt.signed} / ${students.length}명` + (cnt.objection ? ` · 이의 ${cnt.objection}` : '') + (cnt.resolved ? ` · 재서명 ${cnt.resolved}` : '');
+  $('#meter-b').style.width = students.length ? (cnt.signed / students.length * 100) + '%' : '0';
+  if (!students.length) { $('#roster').replaceChildren(el('p', { class: 'err', text: '학생을 찾지 못했어요. 머리글 행과 번호·이름 열을 확인해 주세요. (번호 칸에 숫자가 있고 이름이 있는 행을 학생으로 읽어요)' })); $('#bar-msg').textContent = ''; return; }
+  const head = el('tr', {}, el('th', { text: '번호' }), el('th', { text: '이름' }), cfg.scoreCols.map(c => el('th', { class: 'sc', text: cfg.labels[c] || colName(c) })), el('th', { text: '상태' }), el('th'));
+  const rows = students.map(s => {
+    const st = statusOf(s), sg = sigs[s.row], ob = objs[s.row];
+    let cell;
+    if (st === 'signed') cell = el('img', { class: 'thumb', src: sg.url, alt: s.name + ' 서명' });
+    else if (st === 'objection') cell = el('div', {}, el('span', { class: 'pill obj', text: '이의 · ' + ob.items.join(', ') }), ob.memo ? el('div', { class: 'memo', text: '“' + ob.memo + '”' }) : null);
+    else if (st === 'resolved') cell = el('span', { class: 'pill res', text: ob.note === 'nochange' ? '정정 없음 · 재서명 대기' : '정정됨 · 재서명 대기' });
+    else cell = el('span', { class: 'pending', text: '대기' });
+    return el('tr', { class: st === 'objection' ? 'row-obj' : '' }, el('td', { class: 'num', text: s.rawNum || s.num }), el('td', { text: s.name }),
+      cfg.scoreCols.map(c => el('td', { class: 'sc' + (s.fixed.has(c) ? ' fixed' : ''), text: scoreText(s.map[c]) })),
+      el('td', {}, cell),
+      el('td', {}, el('button', { class: 'btn small' + (st === 'objection' ? ' stamp' : ''), text: st === 'objection' ? '이의 처리' : '관리', onclick: () => manageStudent(s) })));
+  });
+  $('#roster').replaceChildren(el('table', {}, el('thead', {}, head), el('tbody', {}, rows)));
+  $('#bar-msg').textContent = cfg.scoreCols.length ? `${students.length}명 · 점수 ${cfg.scoreCols.length}개 항목 표시` : '학생에게 보여줄 점수를 하나 이상 골라 주세요.';
+}
+
+/* teacher: correct scores / resolve objection / clear signature */
+async function manageStudent(s) {
+  const { sd, cfg, sigs, objs, fixes } = cur();
+  const ob = objs[s.row], sg = sigs[s.row];
+  const inputs = {};
+  const hasFormula = cfg.scoreCols.some(c => sd.cells.get(s.row + ',' + c)?.f);
+  const act = await modal((d, close) => {
+    d.classList.add('wide');
+    const autoT = cfg.totalMode === 'sum' || cfg.totalMode === 'weighted';
+    const totalCol = cfg.scoreCols.find(c => isTotalLabel(cfg.labels[c] || ''));
+    const resum = () => { const vals = {}; for (const c of cfg.scoreCols) vals[c] = inputs[c].value.trim(); const t = computeTotal(cfg, vals); if (t) inputs[t.col].value = fmtLike(t.value, sd.cells.get(s.row + ',' + t.col)); };
+    const grid = el('div', { class: 'fixgrid' }, cfg.scoreCols.map(c => {
+      const inp = el('input', { type: 'text', inputmode: 'decimal', id: 'fix-' + c, value: s.map[c] ?? '', oninput: autoT && c !== totalCol ? () => resum() : null }); inputs[c] = inp;
+      const isF = sd.cells.get(s.row + ',' + c)?.f;
+      return el('label', { class: 'fixrow', for: 'fix-' + c }, el('span', {}, (cfg.labels[c] || colName(c) + '열') + (isF ? ' (엑셀 수식)' : ''),
+        s.fixed.has(c) ? el('span', { class: 'orig', text: '파일 원래 값: ' + scoreText(s.orig[c]) }) : null), inp);
+    }));
+    d.append(el('h3', { text: `${s.num}번 ${s.name}` }));
+    if (ob && !ob.resolved) d.append(el('div', { class: 'objbox' }, el('b', { text: '이의 신청: ' + ob.items.join(', ') }), ob.memo ? el('span', { text: '“' + ob.memo + '”' }) : null,
+      el('span', { class: 'hint', text: new Date(ob.at).toLocaleString('ko-KR', { month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' }) + ' 신청' })));
+    d.append(el('p', { class: 'hint', text: '점수를 고치면 이 학생의 서명만 다시 받아요. 다른 학생의 서명은 그대로예요.' }), grid);
+    if (autoT && totalCol != null) d.append(el('p', { class: 'hint', text: (cfg.totalMode === 'weighted' ? '영역 점수를 고치면 합계가 반영 비율(%)대로 자동 계산돼요.' : '영역 점수를 고치면 합계가 나머지 항목의 합으로 자동으로 바뀌어요.') + ' 필요하면 직접 고칠 수도 있어요.' + (hasFormula ? ' 엑셀의 수식 칸은 파일을 열 때 다시 계산돼요.' : '') }));
+    else if (hasFormula) d.append(el('p', { class: 'hint', text: '엑셀 수식으로 계산되는 칸은 저장한 엑셀을 열 때 다시 계산돼요.' }));
+    if (sg) d.append(el('div', { style: 'display:flex;gap:12px;align-items:center;justify-content:space-between' }, el('img', { class: 'thumb', src: sg.url, alt: '서명', style: 'height:44px;width:130px;object-fit:contain;background:var(--paper);border:1px solid var(--line);border-radius:4px' }),
+      el('button', { class: 'btn small ghost', text: '서명 지우기', onclick: () => close('clearsig') })));
+    const btns = el('div', { class: 'btns' }, el('button', { class: 'btn', text: '닫기', onclick: () => close(null) }), el('button', { class: 'btn primary', text: '점수 정정 저장', onclick: () => close('save') }));
+    d.append(btns);
+    if (ob && !ob.resolved) d.append(el('button', { class: 'btn ghost', text: '정정 없이 이의 처리 완료 (학생이 그대로 서명)', onclick: () => close('nochange') }));
+  });
+  $('#dialog').classList.remove('wide');
+  if (act === 'clearsig') {
+    if (await confirmBox(`${s.num}번 ${s.name} 서명을 지울까요?`, '지운 뒤 학생이 다시 서명할 수 있어요.', '지우기', '취소', true)) { delete sigs[s.row]; renderRoster(); persist(); }
+  } else if (act === 'nochange') {
+    ob.resolved = true; ob.note = 'nochange'; ob.resolvedAt = Date.now(); renderRoster(); persist(); toast(`${s.num}번 이의를 처리했어요. 학생이 다시 서명하면 돼요.`);
+  } else if (act === 'save') {
+    const next = {}; for (const c of cfg.scoreCols) next[c] = inputs[c].value.trim();
+    if (sameScores(next, s.map, cfg.scoreCols)) { toast('바뀐 점수가 없어요.'); return; }
+    const f = fixes[s.row] || {};
+    for (const c of cfg.scoreCols) { if (normV(next[c]) === normV(s.orig[c])) delete f[c]; else f[c] = next[c]; }
+    if (Object.keys(f).length) fixes[s.row] = f; else delete fixes[s.row];
+    const hadSig = !!sigs[s.row]; delete sigs[s.row];
+    if (ob) { ob.resolved = true; ob.note = 'fixed'; ob.resolvedAt = Date.now(); }
+    else objs[s.row] = { num: s.num, name: s.name, items: [], memo: '', at: Date.now(), resolved: true, note: 'fixed', resolvedAt: Date.now() };
+    renderRoster(); persist();
+    toast(`${s.num}번 점수를 정정했어요.${hadSig ? ' 기존 서명은 지웠어요.' : ''} 이 학생만 다시 서명받으세요.`, 3600);
+  }
+}
+
+/* setup events */
+$('#sel-sheet').addEventListener('change', e => selectSheet(+e.target.value).then(persist));
+$('#in-title').addEventListener('input', e => { S.titles[S.sheetIdx] = e.target.value; persist(); });
+$('#sel-hdr').addEventListener('change', e => setHeader(+e.target.value));
+$('#sel-num').addEventListener('change', e => { cur().cfg.numCol = +e.target.value; cur().cfg.scoreCols = cur().cfg.scoreCols.filter(c => c !== +e.target.value); renderSetup(); persist(); });
+$('#sel-name').addEventListener('change', e => { cur().cfg.nameCol = +e.target.value; cur().cfg.scoreCols = cur().cfg.scoreCols.filter(c => c !== +e.target.value); renderSetup(); persist(); });
+$('#sel-sig').addEventListener('change', e => { const v = e.target.value; const cfg = cur().cfg; cfg.sigCol = v === 'new' ? 'new' : +v; cfg.scoreCols = cfg.scoreCols.filter(c => c !== cfg.sigCol); renderSetup(); persist(); });
+$('#chk-enlarge').addEventListener('change', e => { S.enlarge = e.target.checked; persist(); });
+$('#chk-lock').addEventListener('change', e => { G.useLock = e.target.checked; persist(); });
+$('#btn-clear').addEventListener('click', async () => { if (!(await confirmBox('모든 파일을 지울까요?', `열어 둔 파일 ${works.length}개와 받은 서명이 이 기기에서 모두 지워져요.`, '모두 지우기', '취소', true))) return; await idbDel(); works = []; S = blankWork(); $('#resume').hidden = true; show('v-start'); });
+
+/* ---------- file input ---------- */
+const fileIn = $('#file');
+let fileMode = 'new';
+async function takeFile(f) {
+  if (!f) return; const b = new Uint8Array(await f.arrayBuffer());
+  if (!works.length && pendingSaved) await restoreSaved();   // keep earlier work; add this file beside it
+  if (fileMode === 'replace') { fileMode = 'new'; replaceFile(b, f.name); } else loadBytes(b, f.name, false);
+}
+fileIn.addEventListener('change', () => takeFile(fileIn.files[0]));
+const drop = $('#drop');
+['dragenter', 'dragover'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add('over'); }));
+['dragleave', 'drop'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.remove('over'); }));
+drop.addEventListener('drop', e => { fileMode = 'new'; takeFile(e.dataTransfer.files[0]); });
+$('#btn-sample').addEventListener('click', async e => { e.preventDefault(); e.stopPropagation(); if (!works.length && pendingSaved) await restoreSaved(); loadBytes(await buildSampleXlsx(), '예시_수행평가_점수확인표.xlsx', true); });
+$('#btn-replace').addEventListener('click', async () => {
+  const ok = await modal((d, close) => d.append(el('h3', { text: '정정한 파일로 바꾸기' }),
+    el('p', { text: '엑셀에서 점수를 고친 파일을 올리면, 번호와 이름으로 학생을 맞춰 봐요. 점수가 그대로인 학생의 서명은 남기고, 점수가 바뀐 학생만 다시 서명받게 표시해요.' }),
+    el('div', { class: 'btns' }, el('button', { class: 'btn', text: '취소', onclick: () => close(false) }), el('button', { class: 'btn primary', 'data-focus': true, text: '파일 고르기', onclick: () => close(true) })),
+    drive.ready ? el('button', { class: 'btn', text: '구글 드라이브에서 고르기', onclick: () => close('drive') }) : null));
+  if (!ok) return;
+  if (ok === 'drive') { drive.pick('replace'); return; }
+  fileMode = 'replace'; fileIn.value = ''; fileIn.click();
+});
+
+async function replaceFile(bytes, name) {
+  let wb;
+  try { wb = await openWorkbook(bytes.slice().buffer); } catch (e) { toast('이 파일은 열 수 없어요. .xlsx 파일인지 확인해 주세요.', 3600); return; }
+  const oldSheets = S.wb.sheets;
+  const summary = { kept: 0, changed: [], lost: [], objKept: 0, objDone: [] };
+  const nd = { sds: {}, cfg: {}, sigs: {}, objs: {}, fixes: {}, titles: {} };
+  for (let j = 0; j < wb.sheets.length; j++) {
+    let i = oldSheets.findIndex(o => o.name === wb.sheets[j].name);
+    if (i < 0 && oldSheets.length === 1 && wb.sheets.length === 1) i = 0;
+    const sd = await readSheet(wb, wb.sheets[j]); nd.sds[j] = sd;
+    if (i < 0 || !S.cfg[i]) continue;
+    let cfg = JSON.parse(JSON.stringify(S.cfg[i]));
+    if (!studentRows(sd, cfg).length) { const g = guessConfig(sd); cfg = { ...g, labels: { ...g.labels, ...cfg.labels }, maxes: { ...g.maxes, ...cfg.maxes } }; }
+    nd.cfg[j] = cfg; nd.titles[j] = S.titles[i]; nd.sigs[j] = {}; nd.objs[j] = {}; nd.fixes[j] = {};
+    if (!S.sds[i]) await sheetData(i);
+    const oldRoster = rosterOf(i); const byRow = new Map(oldRoster.map(s => [s.row, s]));
+    const fresh = studentRows(sd, cfg).map(s => { const map = {}; cfg.scoreCols.forEach((c, k) => map[c] = s.scores[k]); return { ...s, map }; });
+    const key = s => normV(s.num) + '|' + s.name.replace(/\s/g, '');
+    const byKey = new Map(fresh.map(s => [key(s), s]));
+    const changedHere = [];
+    // a formula cell saved without its result (some tools do this) can't be compared; skip it
+    const cmpCols = n => cfg.scoreCols.filter(c => { const x = sd.cells.get(n.row + ',' + c); return !(x && x.f && x.v === ''); });
+    for (const [r, sg] of Object.entries(S.sigs[i] || {})) {
+      const o = byRow.get(+r); const who = { num: sg.num ?? o?.num, name: sg.name ?? o?.name };
+      if (!who.num) continue;
+      const n = byKey.get(key(who)); const label = `${who.num}번 ${who.name}`;
+      if (!n) { summary.lost.push(label); continue; }
+      const before = sg.snap || o?.map;
+      if (before && sameScores(before, n.map, cmpCols(n))) { nd.sigs[j][n.row] = { ...sg, snap: n.map, num: n.num, name: n.name }; summary.kept++; }
+      else { summary.changed.push(label); changedHere.push(label); }
+    }
+    for (const [r, ob] of Object.entries(S.objs[i] || {})) {
+      const o = byRow.get(+r); const n = byKey.get(key({ num: ob.num ?? o?.num, name: ob.name ?? o?.name })); if (!n) continue;
+      const rec = { ...ob };
+      if (!rec.resolved) {
+        const before = ob.snap || o?.map;
+        if (before && !sameScores(before, n.map, cmpCols(n))) { rec.resolved = true; rec.note = 'fixed'; rec.resolvedAt = Date.now(); summary.objDone.push(`${n.num}번 ${n.name}`); }
+        else summary.objKept++;
+      }
+      if (!nd.sigs[j][n.row] || rec.resolved) nd.objs[j][n.row] = rec;
+    }
+    // students whose signature dropped because their scores changed: mark for re-sign
+    for (const label of changedHere) {
+      const m = /^(\S+)번 (.+)$/.exec(label); const n = m && byKey.get(key({ num: m[1], name: m[2] }));
+      if (n && !nd.objs[j][n.row]) nd.objs[j][n.row] = { num: n.num, name: n.name, items: [], memo: '', at: Date.now(), resolved: true, note: 'fixed', resolvedAt: Date.now() };
+    }
+  }
+  const curName = S.wb.sheets[S.sheetIdx]?.name;
+  Object.assign(S, { fileName: name, bytes, sample: false, wb, ...nd });
+  let idx = wb.sheets.findIndex(s => s.name === curName); if (idx < 0) idx = 0;
+  await selectSheet(idx); persist(); show('v-setup');
+  await modal((d, close) => {
+    const items = [
+      ['서명 그대로 유지', summary.kept + '명', ''],
+      ['점수가 바뀌어 다시 서명', summary.changed.length + '명', summary.changed.join(', ')],
+      ['이의 반영됨 (재서명 대기)', summary.objDone.length + '명', summary.objDone.join(', ')],
+      ['점수가 그대로라 아직 이의 중', summary.objKept + '명', ''],
+    ];
+    if (summary.lost.length) items.push(['새 파일에서 못 찾은 학생', summary.lost.length + '명', summary.lost.join(', ')]);
+    d.append(el('h3', { text: '정정한 파일로 바꿨어요' }), el('ul', { class: 'sumlist' }, items.map(([a, b, w]) => el('li', {}, el('span', {}, a, w ? el('div', { class: 'who2', text: w }) : null), el('b', { class: 'num', text: b })))),
+      el('div', { class: 'btns' }, el('button', { class: 'btn primary', 'data-focus': true, text: '확인', onclick: () => close() })));
+  });
+}
+
+/* ---------- Google Drive (only when the page runs on its own web address with DRIVE_CONFIG filled in) ---------- */
+const drive = (() => {
+  const C = window.DRIVE_CONFIG || {};
+  const api = { ready: false, pick };
+  if (!C.clientId || !C.apiKey || !C.appId || !/^https:/.test(location.protocol)) return api;
+  api.ready = true;
+  $('#btn-drive').hidden = false; $('#drive-hint').hidden = true;
+  let token = null, tokenAt = 0, tokenClient = null, pickerLoaded = null;
+  const loadScript = src => new Promise((res, rej) => { const s = document.createElement('script'); s.src = src; s.async = true; s.onload = res; s.onerror = () => rej(new Error('LOAD')); document.head.append(s); });
+  async function ensureLibs() {
+    if (!pickerLoaded) pickerLoaded = (async () => {
+      await Promise.all([loadScript('https://apis.google.com/js/api.js'), loadScript('https://accounts.google.com/gsi/client')]);
+      await new Promise(res => gapi.load('picker', res));
+    })();
+    return pickerLoaded;
+  }
+  function getToken() {
+    return new Promise((res, rej) => {
+      if (token && Date.now() - tokenAt < 50 * 60 * 1000) return res(token);
+      tokenClient = tokenClient || google.accounts.oauth2.initTokenClient({ client_id: C.clientId, scope: 'https://www.googleapis.com/auth/drive.file', callback: () => {} });
+      tokenClient.callback = r => { if (r.error) return rej(new Error(r.error)); token = r.access_token; tokenAt = Date.now(); res(token); };
+      tokenClient.error_callback = e => rej(new Error(e?.type || 'auth'));
+      tokenClient.requestAccessToken({ prompt: token ? '' : 'select_account' });
+    });
+  }
+  async function pick(mode) {
+    try {
+      await ensureLibs(); const t = await getToken();
+      const view = new google.picker.DocsView(google.picker.ViewId.DOCS)
+        .setMimeTypes('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.google-apps.spreadsheet').setMode(google.picker.DocsViewMode.LIST);
+      const doc = await new Promise(res => {
+        new google.picker.PickerBuilder().addView(view).setOAuthToken(t).setDeveloperKey(C.apiKey).setAppId(C.appId).setLocale('ko')
+          .setTitle('성적 엑셀 파일 고르기').setCallback(d => { if (d.action === google.picker.Action.PICKED) res(d.docs[0]); else if (d.action === google.picker.Action.CANCEL) res(null); })
+          .build().setVisible(true);
+      });
+      if (!doc) return;
+      toast('파일을 가져오는 중…', 8000);
+      const isSheet = doc.mimeType === 'application/vnd.google-apps.spreadsheet';
+      const url = isSheet
+        ? `https://www.googleapis.com/drive/v3/files/${doc.id}/export?mimeType=${encodeURIComponent('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')}`
+        : `https://www.googleapis.com/drive/v3/files/${doc.id}?alt=media`;
+      const r = await fetch(url, { headers: { Authorization: 'Bearer ' + t } });
+      if (r.status === 401) { token = null; throw new Error('auth'); }
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const bytes = new Uint8Array(await r.arrayBuffer());
+      const name = isSheet ? doc.name + '.xlsx' : doc.name;
+      $('#toast').hidden = true;
+      if (mode === 'replace') { replaceFile(bytes, name); return; }
+      if (!works.length && pendingSaved) await restoreSaved();
+      loadBytes(bytes, name, false);
+    } catch (e) {
+      console.error(e);
+      toast(e.message === 'LOAD' ? '구글 드라이브에 연결할 수 없어요. 인터넷 연결을 확인해 주세요.' : e.message === 'auth' || /popup|access_denied/.test(e.message) ? '구글 로그인이 취소됐거나 만료됐어요. 다시 눌러 주세요.' : '드라이브에서 파일을 가져오지 못했어요.', 4000);
+    }
+  }
+  return api;
+})();
+$('#btn-drive').addEventListener('click', e => { e.preventDefault(); e.stopPropagation(); drive.pick('new'); });
+
+/* ---------- export ---------- */
+function dataUrlBytes(u) { const b = atob(u.split(',')[1]); const a = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) a[i] = b.charCodeAt(i); return a; }
+let dl = null; const dlReady = (async () => { try { dl = await window.claude?.use?.('downloads'); } catch { dl = null; } })();
+async function saveFile(name, blob, okMsg) {
+  await dlReady;
+  if (dl) {
+    try { await dl.save({ filename: name, data: blob }); toast(okMsg); }
+    catch (e) { if (e && e.code === 'declined') toast('저장을 취소했어요.'); else if (e && e.code === 'rate_limited') toast('앞의 저장 창을 먼저 닫아 주세요.'); else toast('이 화면에서는 파일을 저장할 수 없어요.'); }
+  } else { const a = el('a', { href: URL.createObjectURL(blob), download: name }); document.body.append(a); a.click(); a.remove(); toast(okMsg); }
+}
+const exportSheets = () => S.wb.sheets.map((_, i) => i).filter(i => S.cfg[i] && (i === S.sheetIdx || Object.keys(S.sigs[i] || {}).length || Object.keys(S.fixes[i] || {}).length));
+async function withBusy(btn, label, fn) { const t = btn.textContent; btn.disabled = true; btn.textContent = label; try { await fn(); } catch (e) { console.error(e); toast('파일을 만드는 중 문제가 생겼어요.'); } btn.disabled = false; btn.textContent = t; }
+function pendingNote() {
+  let n = 0; for (const i of exportSheets()) { if (!S.sds[i]) continue; for (const s of rosterOf(i)) if (statusOf(s, i) === 'objection') n++; }
+  return n ? ` 이의 신청 중인 ${n}명은 서명 칸이 비어 있어요.` : '';
+}
+$('#btn-export').addEventListener('click', e => withBusy(e.currentTarget, '만드는 중…', async () => {
+  const wb = await openWorkbook(S.bytes.slice().buffer);
+  const jobs = [];
+  for (const i of exportSheets()) {
+    const cfg = S.cfg[i]; const sigs = S.sigs[i] || {};
+    const sd = await readSheet(wb, wb.sheets[i]);
+    const st = studentRows(sd, cfg); const valid = new Set(st.map(s => s.row));
+    const js = {}; for (const [r, s] of Object.entries(sigs)) if (valid.has(+r)) js[r] = { bytes: dataUrlBytes(s.url), w: s.w, h: s.h };
+    const fx = {}; for (const [r, f] of Object.entries(S.fixes[i] || {})) if (valid.has(+r)) fx[r] = f;
+    jobs.push({ sheet: wb.sheets[i], sd, cfg: { ...cfg }, students: st, sigs: js, fixes: fx, enlarge: S.enlarge });
+  }
+  const blob = await patchWorkbook(wb, jobs);
+  await saveFile(S.fileName.replace(/\.xlsx$/i, '') + '_서명.xlsx', blob, '엑셀을 저장했어요.' + pendingNote());
+}));
+$('#btn-pdf').addEventListener('click', e => withBusy(e.currentTarget, '만드는 중…', async () => {
+  const pages = [];
+  for (const i of exportSheets()) { await sheetData(i); pages.push(...await renderSheetPages(i)); }
+  await saveFile(S.fileName.replace(/\.xlsx$/i, '') + '_서명.pdf', makePdf(pages), 'PDF를 저장했어요.' + pendingNote());
+}));
+
+/* PDF: draws the sheet's table region (same columns, widths, merges) with signatures, one image per A4 page */
+const PT_W = 595.28, PT_H = 841.89, MARGIN = 36, RES = 2.5;
+/* readable header breaks: "단항식과 다항식의 곱셈 / (만점 100.00, / 15.00%)" */
+const headBreaks = t => String(t).replace(/\s*\n\s*/g, '\n').replace(/([^\n(])\s*\(/g, '$1\n(').replace(/,(?=\S)/g, ', ')
+  .replace(/\([^)]*\)/g, m => m.replace(/([^,]) +/g, '$1\u00a0'));   // inside ( ) break only after commas
+function wrapLines(g, text, maxW, allowSplit = true) {
+  const out = []; let ok = true;
+  for (const para of String(text).split(/\r?\n/)) {
+    const words = para.split(/(?<=[ \t])/);            // keep trailing spaces with each word
+    let line = '';
+    for (const wd of words) {
+      if (g.measureText((line + wd).trimEnd()).width <= maxW || !line && g.measureText(wd.trimEnd()).width <= maxW) { line += wd; continue; }
+      if (line) { out.push(line.trimEnd()); line = ''; }
+      if (g.measureText(wd.trimEnd()).width <= maxW) { line = wd; continue; }
+      if (!allowSplit) { ok = false; line = wd; continue; }
+      for (const ch of wd) { if (line && g.measureText((line + ch).trimEnd()).width > maxW) { out.push(line.trimEnd()); line = ''; } line += ch; }
+    }
+    out.push(line.trimEnd());
+  }
+  out.ok = ok; return out;
+}
+/* draw text inside a box: wrap at natural breaks, shrink step by step; split a word only when nothing else fits */
+function drawFit(g, text, x0, y0, w, h, o) {
+  const padX = o.pad, padY = o.pad * 0.6, maxW = Math.max(1, w - padX * 2), maxH = Math.max(1, h - padY * 2);
+  const fits = ls => ls.length * size * 1.22 <= maxH + 0.5 && ls.every(l => g.measureText(l).width <= maxW + 0.5);
+  let lines = [String(text)], size = o.size, done = false;
+  for (const split of [false, true]) {
+    for (let s = 1; s >= 0.58 && !done; s -= 0.06) {
+      size = o.size * s; g.font = `${o.bold ? 'bold ' : ''}${size}px ${o.font}`;
+      lines = o.wrap ? wrapLines(g, text, maxW, split) : [String(text)];
+      if ((lines.ok !== false) && fits(lines)) done = true;
+    }
+    if (done || !o.wrap) break;
+  }
+  const lh = size * 1.22; let y = y0 + h / 2 - (lines.length - 1) * lh / 2;
+  g.save(); g.beginPath(); g.rect(x0, y0, w, h); g.clip();
+  g.fillStyle = '#111'; g.textBaseline = 'middle'; g.textAlign = o.center ? 'center' : 'left';
+  for (const l of lines) { g.fillText(l, o.center ? x0 + w / 2 : x0 + padX, y); y += lh; }
+  g.restore();
+}
+async function renderSheetPages(i) {
+  const sd = S.sds[i], cfg = S.cfg[i], sigs = S.sigs[i] || {};
+  const st = rosterOf(i); const byRow = new Map(st.map(s => [s.row, s]));
+  const lastRow = st.length ? st[st.length - 1].row : cfg.headerRow;
+  let right = 0; for (const [k] of sd.cells) { const [r, c] = k.split(',').map(Number); if (r >= cfg.headerRow && r <= lastRow && c > right) right = c; }
+  for (const m of sd.merges) if (m.r2 >= cfg.headerRow && m.r1 <= lastRow && m.c2 > right) right = m.c2;
+  const sigCol = cfg.sigCol === 'new' ? right + 1 : cfg.sigCol;
+  const lastCol = Math.max(right, sigCol);
+  const hidden = new Set((cfg.hideCols || []).filter(c => c !== sigCol && !cfg.scoreCols.includes(c)));
+  const colW = c => hidden.has(c) ? 0 : c === sigCol && cfg.sigCol === 'new' ? 102 : sd.colPx(c);
+  const totalW = [...Array(lastCol + 1).keys()].reduce((a, c) => a + colW(c), 0);
+  const k = Math.min(1.25, (PT_W - MARGIN * 2) / 0.75 / totalW);        // px → fit page width (a narrow table is enlarged a little)
+  const subHdr = !byRow.has(cfg.headerRow + 1) && [...sd.cells.keys()].some(x => x.startsWith((cfg.headerRow + 1) + ','));
+  const headRows = subHdr ? [cfg.headerRow, cfg.headerRow + 1] : [cfg.headerRow];
+  const titleRows = [...Array(cfg.headerRow).keys()];
+  const mergeAt = (r, c) => sd.merges.find(m => r >= m.r1 && r <= m.r2 && c >= m.c1 && c <= m.c2);
+  const colX = []; { let x = 0; for (let c = 0; c <= lastCol + 1; c++) { colX[c] = x; x += colW(c); } }
+  try { await document.fonts.load('12px "IBM Plex Sans KR"'); await document.fonts.load('bold 12px "IBM Plex Sans KR"'); } catch {}
+  const FONT = '"IBM Plex Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif';
+  const BASE = 12;
+  // header rows grow so wrapped titles fit (like Excel's 텍스트 줄 바꿈)
+  const meas = document.createElement('canvas').getContext('2d'); meas.font = `bold ${BASE}px ${FONT}`;
+  const grow = {};
+  for (const r of headRows) {
+    let need = sd.rowPx(r);
+    for (let c = 0; c <= lastCol; c++) {
+      if (!colW(c)) continue; const m = mergeAt(r, c);
+      if (m && (m.c1 !== c || m.r1 !== m.r2)) continue;
+      const x = sd.get(r, c); if (!x || !x.v) continue;
+      const w = (colX[(m ? Math.min(m.c2, lastCol) : c) + 1] - colX[c]) - 6;
+      need = Math.max(need, wrapLines(meas, headBreaks(x.v), w, false).length * BASE * 1.22 + 8);
+    }
+    grow[r] = Math.min(need, sd.rowPx(r) * 4, 120);
+  }
+  const rowH = r => { if (grow[r]) return grow[r]; const h = sd.rowPx(r); return S.enlarge && byRow.has(r) ? Math.max(h, 35) : h; };
+  const pageRowsPx = (PT_H - MARGIN * 2) / 0.75 / k;
+  const bodyRows = []; for (let r = headRows[headRows.length - 1] + 1; r <= lastRow; r++) bodyRows.push(r);
+  const pages = []; let curRows = [...titleRows, ...headRows], used = curRows.reduce((a, r) => a + rowH(r), 0);
+  for (const r of bodyRows) {
+    if (used + rowH(r) > pageRowsPx && curRows.length > headRows.length) { pages.push(curRows); curRows = [...headRows]; used = headRows.reduce((a, q) => a + rowH(q), 0); }
+    curRows.push(r); used += rowH(r);
+  }
+  pages.push(curRows);
+  const imgs = {};
+  await Promise.all(Object.entries(sigs).map(([r, s]) => new Promise(res => { const im = new Image(); im.onload = () => { imgs[r] = im; res(); }; im.onerror = res; im.src = s.url; })));
+  const firstTitle = titleRows.find(q => [...Array(lastCol + 1).keys()].some(cc => sd.cells.get(q + ',' + cc)));
+  const out = [];
+  for (const rows of pages) {
+    const cv = document.createElement('canvas'); cv.width = Math.round(PT_W * RES); cv.height = Math.round(PT_H * RES);
+    const g = cv.getContext('2d'); g.fillStyle = '#ffffff'; g.fillRect(0, 0, cv.width, cv.height);
+    const u = 0.75 * k * RES;
+    g.translate(MARGIN * RES, MARGIN * RES);
+    const rowY = new Map(); let y = 0; for (const r of rows) { rowY.set(r, y); y += rowH(r); }
+    const inTable = r => r >= cfg.headerRow && r <= lastRow;
+    for (const r of rows) {
+      for (let c = 0; c <= lastCol; c++) {
+        if (!colW(c)) continue;
+        const m = mergeAt(r, c);
+        if (m) { const firstVis = [...Array(m.c2 - m.c1 + 1).keys()].map(q => q + m.c1).find(q => colW(q)); if (firstVis !== c || (m.r1 !== r && rows.includes(m.r1))) continue; }
+        const c2 = m ? Math.min(m.c2, lastCol) : c; let h = 0; if (m) { for (let q = r; q <= m.r2; q++) if (rows.includes(q)) h += rowH(q); } else h = rowH(r);
+        const x0 = colX[c] * u, y0 = rowY.get(r) * u, w = (colX[c2 + 1] - colX[c]) * u, hh = h * u;
+        const isHead = headRows.includes(r);
+        if (inTable(r)) {
+          if (isHead) { g.fillStyle = '#eef0f3'; g.fillRect(x0, y0, w, hh); }
+          g.strokeStyle = '#333'; g.lineWidth = Math.max(1, 0.6 * RES); g.strokeRect(x0, y0, w, hh);
+        }
+        let v = ''; const s = byRow.get(r);
+        if (s && cfg.scoreCols.includes(c)) v = s.map[c] ?? '';
+        else if (s && c === cfg.numCol) v = s.rawNum || s.num;
+        else { const x = (m ? sd.get(m.r1, m.c1) : sd.cells.get(r + ',' + c)); v = x ? x.v : ''; }
+        if (c === sigCol && r === cfg.headerRow && cfg.sigCol === 'new') v = '서명';
+        if (s && c === sigCol) {
+          const im = imgs[r]; if (im) { const pad = 3 * u; const sc = Math.min((w - pad * 2) / im.width, (hh - pad * 2) / im.height); const iw = im.width * sc, ih = im.height * sc; g.drawImage(im, x0 + (w - iw) / 2, y0 + (hh - ih) / 2, iw, ih); }
+          continue;
+        }
+        if (v === '' || v == null) continue;
+        if (inTable(r)) drawFit(g, isHead ? headBreaks(v) : v, x0, y0, w, hh, { size: BASE * u, bold: isHead, center: true, wrap: true, pad: 3 * u, font: FONT });
+        else {
+          const isTitle = r === firstTitle; const spread = !(m && m.c2 > m.c1);
+          const bw = spread ? (colX[lastCol + 1] - colX[c]) * u : w;
+          drawFit(g, v, x0, y0, bw, hh, { size: (isTitle ? 17 : BASE) * u, bold: isTitle, center: !spread, wrap: false, pad: 3 * u, font: FONT });
+        }
+      }
+    }
+    const jpg = dataUrlBytes(cv.toDataURL('image/jpeg', 0.92));
+    out.push({ jpg, w: cv.width, h: cv.height });
+  }
+  return out;
+
+}
+function makePdf(pages) {
+  const parts = []; let len = 0; const offs = [];
+  const push = x => { const b = typeof x === 'string' ? new TextEncoder().encode(x) : x; parts.push(b); len += b.length; };
+  const obj = (id, ...body) => { offs[id] = len; push(`${id} 0 obj\n`); body.forEach(push); push('\nendobj\n'); };
+  push('%PDF-1.4\n');
+  const n = pages.length;
+  obj(1, '<< /Type /Catalog /Pages 2 0 R >>');
+  obj(2, `<< /Type /Pages /Kids [${pages.map((_, i) => `${3 + 3 * i} 0 R`).join(' ')}] /Count ${n} >>`);
+  pages.forEach((p, i) => {
+    const P = 3 + 3 * i; const cs = `q ${PT_W} 0 0 ${PT_H} 0 0 cm /Im0 Do Q`;
+    obj(P, `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PT_W} ${PT_H}] /Resources << /XObject << /Im0 ${P + 2} 0 R >> >> /Contents ${P + 1} 0 R >>`);
+    obj(P + 1, `<< /Length ${cs.length} >>\nstream\n`, cs, '\nendstream');
+    obj(P + 2, `<< /Type /XObject /Subtype /Image /Width ${p.w} /Height ${p.h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${p.jpg.length} >>\nstream\n`, p.jpg, '\nendstream');
+  });
+  const total = 3 + 3 * n, xref = len;
+  let x = `xref\n0 ${total}\n0000000000 65535 f \n`; for (let i = 1; i < total; i++) x += String(offs[i]).padStart(10, '0') + ' 00000 n \n';
+  push(x); push(`trailer\n<< /Size ${total} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
+  return new Blob(parts, { type: 'application/pdf' });
+}
+
+/* ---------- kiosk (one or more files checked together) ---------- */
+let wake = null;
+async function keepAwake() { try { wake = await navigator.wakeLock?.request('screen'); } catch { wake = null; } }
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && !$('#v-kiosk').hidden) keepAwake(); });
+function withWork(w, fn) { const prev = S; S = w; try { return fn(); } finally { S = prev; } }
+const personKey = (num, name) => normV(num) + '|' + String(name).replace(/\s/g, '');
+let combo = [];            // works checked together in this session
+const workReady = w => { const cfg = w.cfg[w.sheetIdx]; return !!(cfg && cfg.scoreCols.length && w.sds[w.sheetIdx] && withWork(w, () => rosterOf().length)); };
+const workTitle = w => (w.titles[w.sheetIdx] || w.fileName.replace(/\.xlsx$/i, ''));
+/* people = union of students across combo files, matched by 번호+이름 */
+function people() {
+  const map = new Map();
+  for (const w of combo) {
+    const i = w.sheetIdx;
+    for (const s of withWork(w, () => rosterOf(i))) {
+      const k = personKey(s.num, s.name);
+      if (!map.has(k)) map.set(k, { key: k, num: s.num, name: s.name, parts: [] });
+      map.get(k).parts.push({ w, i, s, st: withWork(w, () => statusOf(s, i)) });
+    }
+  }
+  return [...map.values()].sort((a, b) => (+a.num - +b.num) || a.name.localeCompare(b.name, 'ko'));
+}
+function personState(p) {
+  const open = p.parts.filter(x => x.st === 'waiting' || x.st === 'resolved');
+  if (!open.length) return p.parts.some(x => x.st === 'objection') ? 'obj' : 'done';
+  if (open.some(x => x.st === 'resolved')) return 'again';
+  return p.parts.some(x => x.st === 'signed' || x.st === 'objection') ? 'part' : 'wait';
+}
+$('#btn-kiosk').addEventListener('click', async () => {
+  if (!workReady(S)) { toast(!rosterOf().length ? '학생 명단을 먼저 확인해 주세요.' : '학생에게 보여줄 점수를 골라 주세요.'); return; }
+  let chosen = [S];
+  const others = works.filter(w => w !== S && workReady(w));
+  if (others.length) {
+    const picks = new Set([S]);
+    const res = await modal((d, close) => {
+      d.classList.add('wide');
+      const cands = [S, ...others];
+      d.append(el('h3', { text: '어떤 점수를 함께 확인받을까요?' }),
+        el('p', { class: 'hint', text: '함께 고르면 학생이 한 번 나와서 여러 점수를 한 화면에서 보고, 서명도 한 번만 해요. 서명은 고른 파일마다 들어가요. 같은 반 파일끼리 고르세요.' }),
+        el('div', { class: 'objlist pick' }, cands.map((w, k) => {
+          const cb = el('input', { type: 'checkbox', id: 'combo-' + k, checked: w === S, onchange: () => { cb.checked ? picks.add(w) : picks.delete(w); } });
+          const n = withWork(w, () => rosterOf().length);
+          return el('label', { class: 'objitem', for: 'combo-' + k }, cb, el('span', { text: workTitle(w) }), el('span', { class: 'ov', text: n + '명' }));
+        })),
+        el('div', { class: 'btns' }, el('button', { class: 'btn', text: '취소', onclick: () => close(null) }), el('button', { class: 'btn primary', 'data-focus': true, text: '시작', onclick: () => close(true) })));
+    });
+    if (!res) return;
+    chosen = works.filter(w => picks.has(w));
+    if (!chosen.length) { toast('파일을 하나 이상 골라 주세요.'); return; }
+    if (chosen.length > 1) {
+      const keys = chosen.map(w => new Set(withWork(w, () => rosterOf()).map(s => personKey(s.num, s.name))));
+      const inter = [...keys[0]].filter(k => keys.every(s => s.has(k))).length;
+      const min = Math.min(...keys.map(s => s.size));
+      if (inter < min * 0.5 && !(await confirmBox('학생 명단이 서로 달라요', `고른 파일들에서 번호와 이름이 같은 학생이 ${inter}명뿐이에요. 다른 반 파일이 섞였을 수 있어요. 그래도 시작할까요?`, '그래도 시작', '다시 고르기'))) return;
+    }
+  }
+  G.pin = null;
+  if (G.useLock) {
+    const a = await pinPad('잠금 번호 4자리', '선생님만 아는 번호로 정하세요.'); if (!a) return;
+    const b = await pinPad('한 번 더 입력하세요', null, v => v === a); if (!b) return;
+    G.pin = a;
+  }
+  combo = chosen;
+  openKiosk();
+});
+function openKiosk() {
+  combo = combo.filter(w => works.includes(w)); if (!combo.length) combo = [S];
+  $('#k-title').textContent = combo.map(workTitle).join(' · ');
+  const g = $('#numgrid'); g.replaceChildren();
+  const cls = { done: ' done', obj: ' obj', again: ' again', part: ' part', wait: '' };
+  const ps = people();
+  for (const p of ps) g.append(el('button', { class: 'numbtn' + cls[personState(p)] + (p.num.length > 3 ? ' long' : ''), text: p.num, 'aria-label': p.num + '번', onclick: () => pickPerson(p.key) }));
+  const done = ps.filter(p => personState(p) === 'done').length;
+  $('#k-progress').textContent = `${done} / ${ps.length}명 서명 완료` + (combo.length > 1 ? ` · 함께 확인 ${combo.length}개` : '');
+  show('v-kiosk'); keepAwake();
+}
+async function teacherGate(title) {
+  if (G.pin) return !!(await pinPad(title, '잠금 번호를 입력하세요', v => v === G.pin));
+  return true;
+}
+$('#btn-lock').addEventListener('click', async () => {
+  if (!(await teacherGate('선생님 화면으로 돌아가기'))) return;
+  try { wake?.release(); } catch {}
+  renderSetup(); show('v-setup');
+});
+const mask = n => n.length <= 1 ? n : n.length === 2 ? n[0] + '*' : n[0] + '*'.repeat(n.length - 2) + n[n.length - 1];
+async function pickPerson(key) {
+  const p = people().find(x => x.key === key); if (!p) return;
+  let parts = p.parts.filter(x => x.st === 'waiting' || x.st === 'resolved');
+  if (!parts.length) {
+    const obj = p.parts.some(x => x.st === 'objection');
+    const ok = await modal((d, close) => d.append(el('h3', { text: obj ? `${p.num}번은 이의 신청 중이에요` : `${p.num}번은 이미 서명했어요` }),
+      el('p', { text: obj ? '점수를 정정하거나 이의 처리를 끝내면 다시 서명받을 수 있어요. 지금 다시 열어 볼까요?' : '다시 서명받으려면 [다시 받기]를 누르세요.' }),
+      el('div', { class: 'btns' }, el('button', { class: 'btn', text: '닫기', onclick: () => close(false) }), el('button', { class: 'btn primary', 'data-focus': true, text: obj ? '다시 열기' : '다시 받기', onclick: () => close(true) }))));
+    if (!ok || !(await teacherGate(`${p.num}번 다시 열기`))) return;
+    parts = p.parts;
+  }
+  const yes = await modal((d, close) => d.append(el('p', { text: `${p.num}번` }), el('div', { class: 'big', text: mask(p.name) }), el('p', { text: '본인이 맞나요?' }),
+    el('div', { class: 'btns' }, el('button', { class: 'btn', text: '아니요', onclick: () => close(false) }), el('button', { class: 'btn primary', 'data-focus': true, text: '네, 맞아요', onclick: () => close(true) }))));
+  if (yes) openStudent({ num: p.num, name: p.name, parts }, '');
+}
+
+/* ---------- student card ---------- */
+let active = null, idleT = 0, idleLeft = 0;
+function scoreCards(part) {
+  const cfg = part.w.cfg[part.i]; const s = part.s;
+  const box = el('div', { class: 'scores' });
+  cfg.scoreCols.forEach((c, k) => {
+    const label = cfg.labels[c] || colName(c) + '열'; const max = cfg.maxes[c];
+    box.append(el('div', { class: 'sc-card' + (isTotalLabel(label) ? ' total' : '') }, el('div', { class: 'l', text: label + (s.fixed.has(c) ? ' (정정됨)' : '') }), el('div', { class: 'v' }, scoreText(s.scores[k]), max ? el('small', { text: '/ ' + max }) : null)));
+  });
+  [...box.querySelectorAll('.total')].forEach(t => box.append(t));
+  return box;
+}
+function openStudent(person, notice) {
+  active = person;
+  $('#s-num').textContent = person.num + '번'; $('#s-name').textContent = person.name;
+  const multi = person.parts.length > 1;
+  $('#s-title').textContent = multi ? `점수 ${person.parts.length}가지` : workTitle(person.parts[0].w);
+  const box = $('#s-scores'); box.replaceChildren();
+  if (notice) box.append(el('div', { class: 'notice', text: notice }));
+  for (const part of person.parts) box.append(multi ? el('section', { class: 'sc-group' }, el('h3', { text: workTitle(part.w) }), scoreCards(part)) : scoreCards(part));
+  $('#s-agree').checked = false; $('#s-agree-t').textContent = multi ? '위 점수를 모두 확인했습니다.' : '위 점수를 확인했습니다.';
+  pad.clear(); syncStudent();
+  show('v-student'); pad.resize(); bumpIdle();
+}
+function syncStudent() {
+  const ok = $('#s-agree').checked;
+  $('#padwrap').classList.toggle('locked', !ok);
+  $('#pad-ph').hidden = !pad.isEmpty();
+  $('#s-submit').disabled = !(ok && !pad.isEmpty());
+}
+$('#s-agree').addEventListener('change', () => { syncStudent(); bumpIdle(); });
+$('#pad-clear').addEventListener('click', () => { pad.clear(); syncStudent(); bumpIdle(); });
+$('#s-cancel').addEventListener('click', () => leaveStudent());
+function leaveStudent() { clearInterval(idleT); if (modalClose) modalClose(null); active = null; pad.clear(); $('#s-scores').replaceChildren(); $('#s-name').textContent = ''; openKiosk(); }
+function bumpIdle() {
+  clearInterval(idleT); idleLeft = 90; $('#s-idle').textContent = '';
+  idleT = setInterval(() => { idleLeft--; if (idleLeft <= 20) $('#s-idle').textContent = `${idleLeft}초 뒤 번호 선택 화면으로 돌아가요`; if (idleLeft <= 0) leaveStudent(); }, 1000);
+}
+function finish(seal, msg) {
+  $('#done-seal').textContent = seal; $('#done-t').textContent = msg;
+  persist(); clearInterval(idleT); active = null; pad.clear(); $('#s-scores').replaceChildren();
+  show('v-done'); setTimeout(openKiosk, 2200);
+}
+$('#s-submit').addEventListener('click', () => {
+  if (!active || pad.isEmpty()) return;
+  const png = pad.toPNG();
+  for (const { w, i, s } of active.parts) {
+    w.sigs[i] = w.sigs[i] || {}; w.objs[i] = w.objs[i] || {};
+    w.sigs[i][s.row] = { url: png.url, w: png.w, h: png.h, at: Date.now(), num: s.num, name: s.name, snap: { ...s.map } };
+    if (w.objs[i][s.row] && !w.objs[i][s.row].resolved) delete w.objs[i][s.row];
+  }
+  finish('확인', '서명했습니다. 다음 친구를 불러 주세요.');
+});
+$('#s-object').addEventListener('click', async () => {
+  if (!active) return; bumpIdle();
+  const person = active; const picks = new Map();   // part index -> Set(cols)
+  const multi = person.parts.length > 1;
+  const res = await modal((d, close) => {
+    d.classList.add('wide');
+    const memo = el('textarea', { id: 'obj-memo', placeholder: '무엇이 다른지 적어 주세요 (선택)', maxlength: '200', oninput: bumpIdle });
+    const any = () => [...picks.values()].some(s => s.size);
+    const send = el('button', { class: 'btn stamp', text: '이의 신청', disabled: true, onclick: () => close({ memo: memo.value.trim() }) });
+    const lists = person.parts.map((part, pi) => {
+      const cfg = part.w.cfg[part.i]; picks.set(pi, new Set());
+      const items = cfg.scoreCols.map((c, k) => {
+        const cb = el('input', { type: 'checkbox', id: `obj-${pi}-${c}`, onchange: () => { cb.checked ? picks.get(pi).add(c) : picks.get(pi).delete(c); send.disabled = !any(); bumpIdle(); } });
+        return el('label', { class: 'objitem', for: `obj-${pi}-${c}` }, cb, el('span', { text: cfg.labels[c] || colName(c) + '열' }), el('span', { class: 'ov', text: scoreText(part.s.scores[k]) }));
+      });
+      return multi ? el('div', { class: 'objlist' }, el('div', { class: 'eyebrow', text: workTitle(part.w) }), items) : el('div', { class: 'objlist' }, items);
+    });
+    d.append(el('h3', { text: '어느 점수에 이의가 있나요?' }), el('p', { class: 'hint', text: '여러 개를 골라도 돼요. 이의가 있는 점수는 지금 서명하지 않고, 선생님이 확인한 뒤 다시 서명해요.' }),
+      ...lists, memo, el('div', { class: 'btns' }, el('button', { class: 'btn', text: '취소', onclick: () => close(null) }), send));
+  });
+  if (!res || active !== person) return;
+  const rest = [];
+  person.parts.forEach((part, pi) => {
+    const cols = [...picks.get(pi)].sort((a, b) => a - b);
+    if (!cols.length) { rest.push(part); return; }
+    const { w, i, s } = part; const cfg = w.cfg[i];
+    w.objs[i] = w.objs[i] || {}; if (w.sigs[i]) delete w.sigs[i][s.row];
+    w.objs[i][s.row] = { num: s.num, name: s.name, cols, items: cols.map(c => cfg.labels[c] || colName(c) + '열'), memo: res.memo, at: Date.now(), resolved: false, snap: { ...s.map } };
+  });
+  persist();
+  if (rest.length) openStudent({ ...person, parts: rest }, `이의 신청이 접수됐어요. 나머지 점수(${rest.map(x => workTitle(x.w)).join(', ')})를 확인하고 서명해 주세요.`);
+  else finish('이의', '이의 신청이 접수됐어요. 선생님이 확인한 뒤 다시 서명하게 돼요.');
+});
+
+/* ---------- signature pad ---------- */
+const pad = (() => {
+  const cv = $('#pad'), wrap = $('#padwrap'); const ctx = cv.getContext('2d');
+  let strokes = [], curS = null, pid = null, dpr = 1;
+  const INK = '#111418';
+  function resize() { const r = cv.getBoundingClientRect(); if (!r.width) return; dpr = window.devicePixelRatio || 1; cv.width = Math.round(r.width * dpr); cv.height = Math.round(r.height * dpr); redraw(); }
+  function widthOf(p, pen) { return pen ? 1.6 + p * 3.2 : 3; }
+  function drawStroke(c, s, scale) {
+    c.strokeStyle = INK; c.fillStyle = INK; c.lineCap = 'round'; c.lineJoin = 'round';
+    if (s.pts.length === 1) { const p = s.pts[0]; c.beginPath(); c.arc(p.x * scale, p.y * scale, widthOf(p.p, s.pen) * scale / 2, 0, Math.PI * 2); c.fill(); return; }
+    for (let i = 1; i < s.pts.length; i++) {
+      const a = s.pts[i - 1], b = s.pts[i], m0 = i > 1 ? mid(s.pts[i - 2], a) : a, m1 = mid(a, b);
+      c.lineWidth = widthOf((a.p + b.p) / 2, s.pen) * scale;
+      c.beginPath(); c.moveTo(m0.x * scale, m0.y * scale); c.quadraticCurveTo(a.x * scale, a.y * scale, m1.x * scale, m1.y * scale); c.stroke();
+    }
+  }
+  const mid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+  function redraw() { ctx.clearRect(0, 0, cv.width, cv.height); for (const s of strokes) drawStroke(ctx, s, dpr); }
+  const pt = e => { const r = cv.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top, p: e.pressure || .5 }; };
+  cv.addEventListener('pointerdown', e => {
+    if (wrap.classList.contains('locked') || pid !== null) return;
+    e.preventDefault(); pid = e.pointerId; cv.setPointerCapture(pid);
+    curS = { pen: e.pointerType === 'pen', pts: [pt(e)] }; strokes.push(curS); redraw(); bumpIdle();
+  });
+  cv.addEventListener('pointermove', e => {
+    if (e.pointerId !== pid || !curS) return; e.preventDefault();
+    const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
+    for (const ev of (evs.length ? evs : [e])) curS.pts.push(pt(ev));
+    redraw();
+  });
+  const end = e => { if (e.pointerId !== pid) return; pid = null; curS = null; syncStudent(); };
+  cv.addEventListener('pointerup', end); cv.addEventListener('pointercancel', end);
+  window.addEventListener('resize', () => { if (!$('#v-student').hidden) resize(); });
+  function toPNG() {
+    let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+    for (const s of strokes) for (const p of s.pts) { x0 = Math.min(x0, p.x); y0 = Math.min(y0, p.y); x1 = Math.max(x1, p.x); y1 = Math.max(y1, p.y); }
+    const padPx = 8; x0 -= padPx; y0 -= padPx; x1 += padPx; y1 += padPx;
+    let w = x1 - x0, h = y1 - y0;
+    if (h < w / 4) { const d = (w / 4 - h) / 2; y0 -= d; h = w / 4; }  // keep flat signatures from turning into hairlines
+    const scale = Math.min(3, 900 / w);
+    const out = document.createElement('canvas'); out.width = Math.ceil(w * scale); out.height = Math.ceil(h * scale);
+    const c = out.getContext('2d'); c.translate(-x0 * scale, -y0 * scale);
+    for (const s of strokes) drawStroke(c, s, scale);
+    return { url: out.toDataURL('image/png'), w: out.width, h: out.height };
+  }
+  return { resize, clear() { strokes = []; redraw(); }, isEmpty: () => strokes.length === 0, toPNG };
+})();
+
+/* ---------- boot ---------- */
+let pendingSaved = null;
+async function restoreSaved() {
+  const saved = pendingSaved; pendingSaved = null; if (!saved) return;
+  works = []; G.useLock = !!saved.useLock;
+  for (const w of saved.works) await loadBytes(new Uint8Array(w.bytes), w.fileName, w.sample, w, true);
+  $('#resume').hidden = true;
+}
+(async () => {
+  let saved = await idbGet();
+  if (!saved) return;
+  if (saved.bytes && !saved.works) saved = { v: 2, active: 0, useLock: !!saved.useLock, works: [saved], at: saved.at };
+  if (!saved.works || !saved.works.length) return;
+  let n = 0, no = 0;
+  for (const w of saved.works) { n += Object.values(w.sigs || {}).reduce((a, o) => a + Object.keys(o).length, 0); no += Object.values(w.objs || {}).reduce((a, o) => a + Object.values(o).filter(x => !x.resolved).length, 0); }
+  $('#resume-info').textContent = `${saved.works.map(w => w.fileName.replace(/\.xlsx$/i, '')).join(', ')} · 서명 ${n}개${no ? ` · 이의 ${no}건` : ''} · ${new Date(saved.at).toLocaleString('ko-KR', { month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit' })}`;
+  $('#resume').hidden = false;
+  pendingSaved = saved;
+  $('#btn-resume').onclick = async () => { await restoreSaved(); if (works.length) switchWork(Math.min(saved.active || 0, works.length - 1)); };
+  $('#btn-discard').onclick = async () => { if (await confirmBox('저장된 작업을 지울까요?', '받은 서명도 함께 지워져요.', '지우기', '취소', true)) { pendingSaved = null; await idbDel(); $('#resume').hidden = true; } };
+})();
+})();
+</script>
+
+</body>
+</html>
