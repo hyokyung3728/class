@@ -41,7 +41,6 @@
   button,input,select,textarea{font-family:inherit;}
   button{cursor:pointer;}
   html,body{touch-action:manipulation;}
-  body{height:calc(100% + 2px);}
   .class-head{display:flex;align-items:center;gap:8px;padding:10px 12px;background:#fff;border:1px solid var(--gray-border);border-radius:8px;margin:8px 0 4px;font-size:13px;font-weight:700;cursor:pointer;user-select:none;}
   .class-head .cnt{font-weight:400;color:var(--gray-faint);font-size:12px;}
   .class-head .arrow{color:var(--gray-faint);width:14px;display:inline-block;}
@@ -60,7 +59,7 @@
   .pin-box .link-btn-sm{width:auto;background:none;color:var(--blue);border:none;font-size:12px;font-weight:600;padding:8px 4px 0;margin-top:6px;}
 
   /* ---------- 전체 앱 셸 ---------- */
-  #app{display:none;flex-direction:column;position:fixed;top:0;bottom:0;left:0;right:0;max-width:520px;margin:0 auto;background:var(--gray-bg);padding-top:calc(env(safe-area-inset-top) + 14px);box-sizing:border-box;}
+  #app{display:none;flex-direction:column;position:fixed;top:0;left:0;right:0;height:100%;height:var(--app-h, 100%);max-width:520px;margin:0 auto;background:var(--gray-bg);padding-top:calc(env(safe-area-inset-top) + 14px);box-sizing:border-box;}
   .screen{display:none;flex-direction:column;height:100%;min-height:0;}
   .screen.active{display:flex;}
   .scroll-area{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;}
@@ -239,7 +238,7 @@
     <div style="font-size:11.5px;color:var(--gray-faint);margin-top:4px;">숫자 6자리를 입력해주세요.</div>
     <input id="pinInput" type="password" inputmode="numeric" maxlength="6" placeholder="••••••" onkeydown="if(event.key==='Enter') submitPin();">
     <button onclick="submitPin()">확인</button>
-    <div style="text-align:center;font-size:10px;color:var(--gray-faint);margin-top:16px;">ⓒ 2026 김효경 │ 교사 업무 지원 도구 · v2026.11.23c</div>
+    <div style="text-align:center;font-size:10px;color:var(--gray-faint);margin-top:16px;">ⓒ 2026 김효경 │ 교사 업무 지원 도구 · v2026.11.23d</div>
   </div>
 </div>
 
@@ -336,17 +335,31 @@
    계산됐다가, 화면을 스와이프해야 바로잡히는 경우가 있어요. window.innerHeight를
    기준으로 --app-vh 값을 직접 계산해서 넣어주면, 스와이프 없이도 처음부터
    하단 탭바가 화면 맨 아래에 딱 맞게 표시돼요. */
+function isStandaloneApp(){
+  return window.navigator.standalone===true || !!(window.matchMedia && window.matchMedia('(display-mode: standalone)').matches);
+}
+/* 아이폰 홈 화면 앱은 실행 직후 "화면 높이"를 실제보다 작게 알려주는 경우가 있어서(하단에 회색 여백이 생김),
+   아이폰이 알려주는 높이를 믿지 않고 기기 화면 크기(screen)로 앱 높이를 직접 정해요. 세로 모드일 때만 그렇게 하고,
+   브라우저 탭으로 열었거나 가로 모드면 기존처럼 현재 보이는 영역 높이를 써요. */
 function setAppVH(){
-  const h = (window.visualViewport && window.visualViewport.height) || window.innerHeight;
-  document.documentElement.style.setProperty('--app-vh', (h*0.01)+'px');
+  let h = (window.visualViewport && window.visualViewport.height) || window.innerHeight;
+  try{
+    if(isStandaloneApp() && window.matchMedia && window.matchMedia('(orientation: portrait)').matches && typeof screen!=='undefined' && screen.height){
+      h = Math.max(screen.width, screen.height);
+    }
+  }catch(e){}
+  document.documentElement.style.setProperty('--app-h', h+'px');
 }
 setAppVH();
 window.addEventListener('resize', setAppVH);
-window.addEventListener('orientationchange', ()=>setTimeout(setAppVH,150));
+window.addEventListener('orientationchange', ()=>{ setTimeout(setAppVH,150); setTimeout(setAppVH,500); });
 window.addEventListener('pageshow', setAppVH);
-if(window.visualViewport){ window.visualViewport.addEventListener('resize', setAppVH); }
+window.addEventListener('focus', setAppVH);
+document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) setAppVH(); });
+if(window.visualViewport){ window.visualViewport.addEventListener('resize', setAppVH); window.visualViewport.addEventListener('scroll', setAppVH); }
 setTimeout(setAppVH,300);
 setTimeout(setAppVH,800);
+setTimeout(setAppVH,1500);
 
 /* iOS 홈 화면 추가(standalone) 앱은 실행 직후 내부적으로 잘못된 화면 높이를 들고 있다가
    화면을 스크롤(스와이프)해야 그때서야 바로잡는 경우가 있어요. 사용자가 직접 스와이프하지
@@ -707,20 +720,14 @@ function logoutDevice(){
 }
 function settleViewport(){
   try{ if(document.activeElement && document.activeElement.blur) document.activeElement.blur(); }catch(e){}
-  _parkingScroll = true;
-  window.scrollTo(0,1); // 문서를 1px만 아래에 두어요 (상태바 탭 "맨 위로" 동작이 이 위치에서 시작돼요)
-  setTimeout(()=>{ _parkingScroll = false; }, 120);
+  window.scrollTo(0,0);
+  setAppVH();
 }
 function isFormFocused(){
   const t = (document.activeElement && document.activeElement.tagName) || '';
   return t==='INPUT' || t==='TEXTAREA' || t==='SELECT' || !!(document.activeElement && document.activeElement.isContentEditable);
 }
-/* ---------------------- 맨 위로 (아이폰 상태바 탭 + 맨 위로 버튼) ----------------------
-   아이폰의 "상단 시계 부분을 누르면 맨 위로 이동"은 페이지 자체의 스크롤에만 동작해요. 이 앱은 화면 안쪽 영역이
-   스크롤되는 구조라서, 페이지를 1px만 스크롤 가능한 상태로 두고, 상태바를 눌러 페이지가 맨 위로 올라가는 순간을
-   감지해서 지금 보고 있는 목록을 맨 위로 올려줘요. (기기에 따라 안 될 수 있어서, 아래쪽 ▲ 버튼도 함께 넣었어요) */
-let _parkingScroll = false;
-let _lastScrollY = 1;
+/* ---------------------- 맨 위로 버튼 ---------------------- */
 function scrollActiveToTop(){
   const modal = document.getElementById('modalOverlay');
   if(modal && modal.classList.contains('open')){ document.getElementById('modalBody').scrollTo({top:0, behavior:'smooth'}); return; }
@@ -737,20 +744,8 @@ function updateToTopBtn(){
   btn.style.display = show ? 'block' : 'none';
 }
 window.addEventListener('scroll', (e)=>{
-  if(e.target===document || e.target===window){
-    const y = window.scrollY;
-    if(!_parkingScroll && y<=0.5 && _lastScrollY>0.5 && !isFormFocused()){
-      scrollActiveToTop();
-      setTimeout(()=>{ _parkingScroll = true; window.scrollTo(0,1); setTimeout(()=>{ _parkingScroll=false; },120); }, 400);
-    }
-    _lastScrollY = y;
-  } else if(e.target && e.target.classList && (e.target.classList.contains('scroll-area') || e.target.classList.contains('day-grid-wrap'))){
-    updateToTopBtn();
-  }
+  if(e.target && e.target.classList && (e.target.classList.contains('scroll-area') || e.target.classList.contains('day-grid-wrap'))) updateToTopBtn();
 }, true);
-if(window.visualViewport){
-  window.visualViewport.addEventListener('resize', ()=>{ if(!isFormFocused()) setTimeout(settleViewport, 50); });
-}
 function unlockApp(){
   settleViewport();
   // 키보드가 내려가는 동안 화면이 어긋나 있을 수 있어서, 몇 번에 걸쳐 제자리로 되돌려요
@@ -2736,7 +2731,7 @@ function renderSettingsScreen(){
       <button class="btn danger-ghost full" style="margin-top:8px;" onclick="logoutDevice()">이 기기 로그아웃</button>
     </div>
 
-    <div style="text-align:center;font-size:10.5px;color:var(--gray-faint);padding:4px 0 16px;">ⓒ 2026 김효경 │ 교사 업무 지원 도구 · v2026.11.23c</div>
+    <div style="text-align:center;font-size:10.5px;color:var(--gray-faint);padding:4px 0 16px;">ⓒ 2026 김효경 │ 교사 업무 지원 도구 · v2026.11.23d</div>
   `;
 }
 
