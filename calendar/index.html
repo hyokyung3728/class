@@ -41,6 +41,10 @@
   button,input,select,textarea{font-family:inherit;}
   button{cursor:pointer;}
   html,body{touch-action:manipulation;}
+  body{height:calc(100% + 2px);}
+  .class-head{display:flex;align-items:center;gap:8px;padding:10px 12px;background:#fff;border:1px solid var(--gray-border);border-radius:8px;margin:8px 0 4px;font-size:13px;font-weight:700;cursor:pointer;user-select:none;}
+  .class-head .cnt{font-weight:400;color:var(--gray-faint);font-size:12px;}
+  .class-head .arrow{color:var(--gray-faint);width:14px;display:inline-block;}
   /* 아이폰은 글자 크기가 16px보다 작은 입력창을 누르면 화면을 자동으로 확대해요. 폰 화면에서는 입력창 글자를 16px로 맞춰 확대를 막아요. */
   @media (max-width:700px){
     input,select,textarea,.richtext-input,.search-box{font-size:16px !important;}
@@ -91,9 +95,9 @@
   .dot.blue{background:var(--blue);} .dot.orange{background:var(--orange);} .dot.gray{background:var(--gray-faint);} .dot.purple{background:#7C3AED;} .dot.green{background:#16A34A;}
 
   /* ---------- 하단 탭바 ---------- */
-  #tabbar{flex-shrink:0;display:flex;align-items:center;border-top:1px solid var(--gray-border);background:#fff;padding:6px 8px calc(4px + env(safe-area-inset-bottom) * 0.4);}
+  #tabbar{flex-shrink:0;display:flex;align-items:center;border-top:1px solid var(--gray-border);background:#fff;padding:4px 8px calc(2px + env(safe-area-inset-bottom) * 0.2);}
   #tabbar.hidden{display:none;}
-  .tabbtn{border:none;background:none;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:11px;padding:6px 0;flex:1;color:var(--gray-faint);}
+  .tabbtn{border:none;background:none;display:flex;flex-direction:column;align-items:center;gap:2px;font-size:11px;padding:4px 0;flex:1;color:var(--gray-faint);}
   .tabbtn.active{color:var(--blue);}
 
   /* ---------- 날짜상세 화면 ---------- */
@@ -235,7 +239,7 @@
     <div style="font-size:11.5px;color:var(--gray-faint);margin-top:4px;">숫자 6자리를 입력해주세요.</div>
     <input id="pinInput" type="password" inputmode="numeric" maxlength="6" placeholder="••••••" onkeydown="if(event.key==='Enter') submitPin();">
     <button onclick="submitPin()">확인</button>
-    <div style="text-align:center;font-size:10px;color:var(--gray-faint);margin-top:16px;">ⓒ 2026 김효경 │ 교사 업무 지원 도구 · v2026.11</div>
+    <div style="text-align:center;font-size:10px;color:var(--gray-faint);margin-top:16px;">ⓒ 2026 김효경 │ 교사 업무 지원 도구 · v2026.11.23c</div>
   </div>
 </div>
 
@@ -323,6 +327,7 @@
   <img id="imgLightboxImg" src="" alt="첨부 이미지">
 </div>
 
+<button id="toTopBtn" aria-label="맨 위로" onclick="scrollActiveToTop()" style="display:none;position:fixed;right:14px;bottom:calc(78px + env(safe-area-inset-bottom) * 0.2);z-index:120;width:42px;height:42px;border-radius:50%;border:1px solid var(--gray-border);background:#fff;color:var(--blue);font-size:18px;box-shadow:0 2px 8px rgba(0,0,0,.14);">▲</button>
 <div id="toastContainer"></div>
 
 <script>
@@ -413,7 +418,7 @@ let STATE = {
   personalEvents: {},
   scores: {},
   termStart: '', termEnd: '', missingSince: '',
-  missingExpanded: false, statsOpen: false, statsClass: '', statsRange: 'all', recTagFilter: '',
+  missingExpanded: false, statsOpen: false, statsClass: '', statsRange: 'all', recTagFilter: '', openClasses: {},
   currentMonthDate: new Date(),
   selectedDateKey: null,
   selectedStudentId: null,
@@ -702,9 +707,49 @@ function logoutDevice(){
 }
 function settleViewport(){
   try{ if(document.activeElement && document.activeElement.blur) document.activeElement.blur(); }catch(e){}
-  window.scrollTo(0,0);
-  if(document.body) document.body.scrollTop = 0;
-  if(document.documentElement) document.documentElement.scrollTop = 0;
+  _parkingScroll = true;
+  window.scrollTo(0,1); // 문서를 1px만 아래에 두어요 (상태바 탭 "맨 위로" 동작이 이 위치에서 시작돼요)
+  setTimeout(()=>{ _parkingScroll = false; }, 120);
+}
+function isFormFocused(){
+  const t = (document.activeElement && document.activeElement.tagName) || '';
+  return t==='INPUT' || t==='TEXTAREA' || t==='SELECT' || !!(document.activeElement && document.activeElement.isContentEditable);
+}
+/* ---------------------- 맨 위로 (아이폰 상태바 탭 + 맨 위로 버튼) ----------------------
+   아이폰의 "상단 시계 부분을 누르면 맨 위로 이동"은 페이지 자체의 스크롤에만 동작해요. 이 앱은 화면 안쪽 영역이
+   스크롤되는 구조라서, 페이지를 1px만 스크롤 가능한 상태로 두고, 상태바를 눌러 페이지가 맨 위로 올라가는 순간을
+   감지해서 지금 보고 있는 목록을 맨 위로 올려줘요. (기기에 따라 안 될 수 있어서, 아래쪽 ▲ 버튼도 함께 넣었어요) */
+let _parkingScroll = false;
+let _lastScrollY = 1;
+function scrollActiveToTop(){
+  const modal = document.getElementById('modalOverlay');
+  if(modal && modal.classList.contains('open')){ document.getElementById('modalBody').scrollTo({top:0, behavior:'smooth'}); return; }
+  const scr = document.querySelector('.screen.active');
+  if(!scr) return;
+  scr.querySelectorAll('.scroll-area, .day-grid-wrap').forEach(el=>{ if(el.offsetParent!==null) el.scrollTo({top:0, behavior:'smooth'}); });
+}
+function updateToTopBtn(){
+  const btn = document.getElementById('toTopBtn');
+  if(!btn) return;
+  let show = false;
+  const scr = document.querySelector('.screen.active');
+  if(scr) scr.querySelectorAll('.scroll-area, .day-grid-wrap').forEach(el=>{ if(el.offsetParent!==null && el.scrollTop>400) show = true; });
+  btn.style.display = show ? 'block' : 'none';
+}
+window.addEventListener('scroll', (e)=>{
+  if(e.target===document || e.target===window){
+    const y = window.scrollY;
+    if(!_parkingScroll && y<=0.5 && _lastScrollY>0.5 && !isFormFocused()){
+      scrollActiveToTop();
+      setTimeout(()=>{ _parkingScroll = true; window.scrollTo(0,1); setTimeout(()=>{ _parkingScroll=false; },120); }, 400);
+    }
+    _lastScrollY = y;
+  } else if(e.target && e.target.classList && (e.target.classList.contains('scroll-area') || e.target.classList.contains('day-grid-wrap'))){
+    updateToTopBtn();
+  }
+}, true);
+if(window.visualViewport){
+  window.visualViewport.addEventListener('resize', ()=>{ if(!isFormFocused()) setTimeout(settleViewport, 50); });
 }
 function unlockApp(){
   settleViewport();
@@ -858,6 +903,7 @@ function showScreen(name){
     tabbar.classList.remove('hidden');
     document.querySelectorAll('.tabbtn').forEach(b=>b.classList.toggle('active', b.dataset.tab===name));
   }
+  updateToTopBtn();
   if(name==='progress') renderProgressScreen();
   if(name==='students') renderStudentsScreen();
   if(name==='settings') renderSettingsScreen();
@@ -2385,27 +2431,46 @@ function buildStudentListHtml(){
     classGroups[s.class]=classGroups[s.class]||[];
     classGroups[s.class].push({id,...s});
   });
-  let listHtml='';
-  Object.keys(classGroups).sort().forEach(cls=>{
-    listHtml += `<div style="font-size:11px;color:#9CA3AF;font-weight:700;padding:8px 2px 4px;">${escHtml(cls)}</div>`;
-    classGroups[cls].sort((a,b)=>a.number-b.number).forEach(s=>{
-      listHtml += `<div class="stu-row ${STATE.selectedStudentId===s.id?'sel':''}" onclick="selectStudent('${s.id}')">${s.number}번 ${escHtml(s.name)}</div>`;
+  const names = Object.keys(classGroups).sort();
+  if(!names.length) return `<div class="empty-hint">${q?'검색 결과가 없어요.':'등록된 학생이 없어요. 설정 탭에서 명단을 업로드해주세요.'}</div>`;
+  let html = q ? '' : `<div style="display:flex;gap:12px;justify-content:flex-end;"><button class="link-btn" onclick="setAllClassesOpen(true)">전체 펴기</button><button class="link-btn" onclick="setAllClassesOpen(false)">전체 접기</button></div>`;
+  names.forEach(cls=>{
+    const list = classGroups[cls].sort((a,b)=>a.number-b.number);
+    const hasSel = list.some(s=>s.id===STATE.selectedStudentId);
+    // 검색 중에는 모두 펴서 보여주고, 평소엔 접어두되 선택한 학생이 있는 반은 펴둬요
+    const open = q ? true : (STATE.openClasses[cls]===undefined ? hasSel : !!STATE.openClasses[cls]);
+    const key = escHtml(cls).replace(/'/g,"\\'");
+    html += `<div class="class-head" onclick="toggleClassOpen('${key}')"><span class="arrow">${open?'▾':'▸'}</span><span>${escHtml(cls)}</span><span class="cnt">${list.length}명</span></div>`;
+    if(open) list.forEach(s=>{
+      html += `<div class="stu-row ${STATE.selectedStudentId===s.id?'sel':''}" onclick="selectStudent('${s.id}')">${s.number}번 ${escHtml(s.name)}</div>`;
     });
   });
-  if(!Object.keys(classGroups).length) listHtml = `<div class="empty-hint">${q?'검색 결과가 없어요.':'등록된 학생이 없어요. 설정 탭에서 명단을 업로드해주세요.'}</div>`;
-  return listHtml;
+  return html;
+}
+function refreshStudentList(){
+  const area = document.getElementById('stuListArea');
+  if(area) area.innerHTML = buildStudentListHtml();
+}
+function toggleClassOpen(cls){
+  if(STATE.studentSearch.trim()) return;
+  const hasSel = !!(STATE.selectedStudentId && STATE.students[STATE.selectedStudentId] && STATE.students[STATE.selectedStudentId].class===cls);
+  const cur = STATE.openClasses[cls]===undefined ? hasSel : STATE.openClasses[cls];
+  STATE.openClasses[cls] = !cur;
+  refreshStudentList();
+}
+function setAllClassesOpen(open){
+  [...new Set(Object.values(STATE.students).map(s=>s.class))].forEach(c=>{ STATE.openClasses[c] = open; });
+  refreshStudentList();
 }
 // 검색창 자체는 다시 그리지 않고 목록만 바꿔요. (입력창을 다시 그리면 한글 조합이 끊겨서 "ㄱㅣㅁ"처럼 입력돼요)
 function onStudentSearchInput(el, e){
   STATE.studentSearch = el.value;
   if(e && e.isComposing) return; // 글자를 조합하는 중에는 기다렸다가, 한 글자가 완성되면 목록을 갱신해요
-  const area = document.getElementById('stuListArea');
-  if(area) area.innerHTML = buildStudentListHtml();
+  refreshStudentList();
 }
 function onStudentSearchCompositionEnd(el){
   STATE.studentSearch = el.value;
-  const area = document.getElementById('stuListArea');
-  if(area) area.innerHTML = buildStudentListHtml();
+  refreshStudentList();
 }
 
 function renderStudentsScreen(){
@@ -2432,7 +2497,11 @@ function renderStudentsScreen(){
   `;
 }
 
-function selectStudent(id){ STATE.selectedStudentId=id; STATE.recTagFilter=''; renderStudentsScreen(); }
+function selectStudent(id){
+  STATE.selectedStudentId=id; STATE.recTagFilter=''; renderStudentsScreen();
+  // 폰처럼 좁은 화면에서는 학생을 누르면 바로 그 학생의 기록이 보이도록 아래로 이동해요
+  if(window.innerWidth<700){ setTimeout(()=>{ const el=document.getElementById('studentDetailArea'); if(el) el.scrollIntoView({behavior:'smooth', block:'start'}); }, 50); }
+}
 function setRecTagFilter(t){ STATE.recTagFilter = (STATE.recTagFilter===t) ? '' : t; renderStudentsScreen(); }
 
 function renderStudentDetail(id){
@@ -2667,7 +2736,7 @@ function renderSettingsScreen(){
       <button class="btn danger-ghost full" style="margin-top:8px;" onclick="logoutDevice()">이 기기 로그아웃</button>
     </div>
 
-    <div style="text-align:center;font-size:10.5px;color:var(--gray-faint);padding:4px 0 16px;">ⓒ 2026 김효경 │ 교사 업무 지원 도구 · v2026.11</div>
+    <div style="text-align:center;font-size:10.5px;color:var(--gray-faint);padding:4px 0 16px;">ⓒ 2026 김효경 │ 교사 업무 지원 도구 · v2026.11.23c</div>
   `;
 }
 
