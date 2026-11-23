@@ -230,7 +230,7 @@
     <div style="font-size:11.5px;color:var(--gray-faint);margin-top:4px;">숫자 6자리를 입력해주세요.</div>
     <input id="pinInput" type="password" inputmode="numeric" maxlength="6" placeholder="••••••" onkeydown="if(event.key==='Enter') submitPin();">
     <button onclick="submitPin()">확인</button>
-    <div style="text-align:center;font-size:10px;color:var(--gray-faint);margin-top:16px;">ⓒ 2026 김효경 │ 교사 업무 지원 도구 · v2026.09</div>
+    <div style="text-align:center;font-size:10px;color:var(--gray-faint);margin-top:16px;">ⓒ 2026 김효경 │ 교사 업무 지원 도구 · v2026.11</div>
   </div>
 </div>
 
@@ -253,6 +253,7 @@
         <button onclick="goQuickRecord()">바로 기록</button>
       </div>
       <div id="todayEventsBanner" style="display:none;"></div>
+      <div id="missingBanner" style="display:none;margin-bottom:10px;"></div>
       <div class="weekday-row" id="weekdayRow"><div>일</div><div>월</div><div>화</div><div>수</div><div>목</div><div>금</div><div>토</div></div>
       <button class="link-btn" id="calViewToggleBtn" style="width:100%;text-align:right;" onclick="toggleCalendarView()">☰ 목록으로 보기</button>
     </div>
@@ -371,6 +372,8 @@ window.addEventListener('pageshow', forceViewportRecalc);
    /periodOverrides/{termId}/{dateKey}/{교시} : {type:'event'|'other', memo, countSession}
    /students/{termId}/{studentId}         : {class, number, name}
    /progress/{termId}/{반이름}/{entryId}   : {seq,date,period,material,startPoint,endPoint,unit,note,createdAt}
+   /progress 기록의 kind: 'new'(새 차시, 기본) | 'same'(앞 차시와 같은 내용) | 'none'(진도 안 나감, 차시 번호 없음)
+   /scores/{termId}/{studentId}/{mid|final} : 0~100 숫자 (정기고사 점수. 학생·시험당 하나라 중복되지 않아요)
    /studentRecords/{termId}/{recordId}    : {studentId,studentName,class,date,tag,note,createdAt}
    /personalEvents/{termId}/{startDateKey}/{id} : {category,title,allDay,time,endTime,endDate,textHtml,link,fileData,fileName,fileType}
      (startDateKey는 일정의 시작일. endDate가 있으면 그 날짜까지 여러 날에 걸친 일정이에요.
@@ -402,6 +405,9 @@ let STATE = {
   progress: {},
   studentRecords: {},
   personalEvents: {},
+  scores: {},
+  termStart: '', termEnd: '', missingSince: '',
+  missingExpanded: false, statsOpen: false, statsClass: '', statsRange: 'all', recTagFilter: '',
   currentMonthDate: new Date(),
   selectedDateKey: null,
   selectedStudentId: null,
@@ -673,6 +679,9 @@ async function loadAllData(){
   const termCfg = (cfg.terms && cfg.terms[STATE.termId]) || {};
   STATE.targetSessions = termCfg.targetSessions || 0;
   STATE.periodTimes = cfg.periodTimes || DEFAULT_PERIOD_TIMES;
+  STATE.termStart = termCfg.startDate || '';
+  STATE.termEnd = termCfg.endDate || '';
+  STATE.missingSince = termCfg.missingSince || '';
 
   const t = STATE.termId;
   STATE.timetable = await dbGet(`timetable/${t}`) || {};
@@ -683,6 +692,7 @@ async function loadAllData(){
   STATE.progress = await dbGet(`progress/${t}`) || {};
   STATE.studentRecords = await dbGet(`studentRecords/${t}`) || {};
   STATE.personalEvents = await dbGet(`personalEvents/${t}`) || {};
+  STATE.scores = await dbGet(`scores/${t}`) || {};
 
   await removePeriodZeroEverywhere();
 }
@@ -698,6 +708,64 @@ async function silentSet(p, data){
 async function silentRemove(p){
   try{ await fetch(dbPath(p),{method:'DELETE'}); }
   catch(e){ /* 배경 정리라 실패해도 조용히 넘어가요 */ }
+}
+async function silentPatch(p, data){
+  try{ await fetch(dbPath(p),{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}); }
+  catch(e){ /* 배경 정리라 실패해도 조용히 넘어가요 */ }
+}
+
+/* ---------------------- 진도 기록 정렬·차시 번호 정리 ----------------------
+   차시 번호(seq)는 항상 "날짜 → 교시" 순서대로 1,2,3… 이어지게 맞춰요.
+   수업을 옮기거나 교체하거나 기록을 지웠을 때 번호가 꼬이지 않도록, 그때마다 다시 정리해요. */
+function cmpProgress(a,b){
+  if(a.date!==b.date) return a.date<b.date?-1:1;
+  if(Number(a.period)!==Number(b.period)) return Number(a.period)-Number(b.period);
+  return (a.createdAt||0)-(b.createdAt||0);
+}
+function cmpSlot(e, dk, period){
+  if(e.date!==dk) return e.date<dk?-1:1;
+  return Number(e.period)-Number(period);
+}
+async function renumberProgress(cls){
+  const list = STATE.progress[cls];
+  if(!list) return;
+  const arr = Object.entries(list).map(([id,v])=>({id,...v})).sort(cmpProgress);
+  const patch = {};
+  let counter = 0, prevEnd = '';
+  arr.forEach(e=>{
+    const kind = e.kind || 'new';
+    let seq, sp;
+    if(kind==='none'){ seq = 0; sp = ''; }                       // 진도 안 나간 수업은 번호를 쓰지 않아요
+    else if(kind==='same' && counter>0){ seq = counter; sp = prevEnd; } // 앞 차시와 같은 번호
+    else { counter++; seq = counter; sp = counter===1 ? (e.startPoint||'') : prevEnd; }
+    if(kind!=='none') prevEnd = e.endPoint || prevEnd;
+    if(e.seq!==seq || (e.startPoint||'')!==sp){
+      const {id, ...rest} = e;
+      const updated = {...rest, seq, startPoint: sp};
+      list[id] = updated;
+      patch[id] = updated;
+    }
+  });
+  if(Object.keys(patch).length) await silentPatch(`progress/${STATE.termId}/${cls}`, patch);
+}
+// 수업이 다른 날짜·교시로 옮겨질 때, 이미 기록된 진도도 같이 따라가게 해요. (옮긴 게 있으면 true)
+async function moveProgressRecord(cls, fromDk, fromPeriod, toDk, toPeriod){
+  const rec = findProgressEntry(cls, fromDk, Number(fromPeriod));
+  if(!rec) return false;
+  if(findProgressEntry(cls, toDk, Number(toPeriod))) return false; // 도착 자리에 같은 반 기록이 이미 있으면 건드리지 않아요
+  const {id, ...data} = rec;
+  data.date = toDk; data.period = Number(toPeriod);
+  await silentSet(`progress/${STATE.termId}/${cls}/${id}`, data);
+  STATE.progress[cls][id] = data;
+  return true;
+}
+function refreshAfterProgressChange(cls){
+  if(STATE.selectedDateKey) renderDayDetail();
+  renderCalendar();
+  if(document.getElementById('screen-progress').classList.contains('active')){
+    renderProgressScreen();
+    if(cls) showClassHistory(cls);
+  }
 }
 
 async function removePeriodZeroEverywhere(){
@@ -861,6 +929,7 @@ function findProgressEntry(cls, dk, period){
 
 function renderCalendar(){
   renderTodayEventsBanner();
+  renderMissingBanner();
   const d = STATE.currentMonthDate;
   document.getElementById('monthLabel').textContent = `${d.getFullYear()}년 ${d.getMonth()+1}월`;
   const first = new Date(d.getFullYear(), d.getMonth(), 1);
@@ -1155,7 +1224,7 @@ function renderDayDetail(){
           const e=p.progressEntry;
           html += `<div class="card">
             <div class="card-top"><div class="cname">${p.period}교시 · ${p.cls}</div><div class="badge blue">기록완료</div></div>
-            <div class="sub">${e.seq}차시 · ${e.material?e.material+' · ':''}${e.endPoint}</div>
+            <div class="sub">${progressSummary(e)}</div>
             ${swapNote}${movedFromNote}
             <div class="card-actions">
               <button class="btn ghost" onclick="openProgressModal('${p.cls}',${p.period},true)">기록 수정</button>
@@ -1164,6 +1233,7 @@ function renderDayDetail(){
             <div style="display:flex;gap:10px;flex-wrap:wrap;">
               <button class="link-btn" onclick="clearOverride('${p.period}')">되돌리기</button>
               <button class="link-btn" onclick="openMoveModal('${p.period}','${p.cls}')">다른 날짜로 이동</button>
+              <button class="link-btn" onclick="openSwapModal('${p.period}','${p.cls}')">수업 교체</button>
               <button class="link-btn" style="color:#DC2626;" onclick="deleteClassPeriod('${p.period}','${p.cls}')">수업 삭제</button>
               <button class="link-btn" style="color:#DC2626;" onclick="deleteProgress('${p.cls}','${e.id}')">기록 삭제</button>
             </div>
@@ -1180,6 +1250,7 @@ function renderDayDetail(){
               <button class="link-btn" onclick="openOverrideModal('${p.period}','${p.cls}')">행사·기타 활동으로 표시</button>
               <button class="link-btn" onclick="clearOverride('${p.period}')">되돌리기</button>
               <button class="link-btn" onclick="openMoveModal('${p.period}','${p.cls}')">다른 날짜로 이동</button>
+              <button class="link-btn" onclick="openSwapModal('${p.period}','${p.cls}')">수업 교체</button>
               <button class="link-btn" style="color:#DC2626;" onclick="deleteClassPeriod('${p.period}','${p.cls}')">수업 삭제</button>
             </div>
           </div>`;
@@ -1188,13 +1259,14 @@ function renderDayDetail(){
         const e=p.progressEntry;
         html += `<div class="card">
           <div class="card-top"><div class="cname">${p.period}교시 · ${e.cls||p.cls}</div><div class="badge blue">기록완료</div></div>
-          <div class="sub">${e.seq}차시 · ${e.material?e.material+' · ':''}${e.endPoint}</div>
+          <div class="sub">${progressSummary(e)}</div>
           <div class="card-actions">
             <button class="btn ghost" onclick="openProgressModal('${p.cls}',${p.period},true)">기록 수정</button>
             <button class="btn secondary" onclick="openStudentRecordModal('${p.cls}')">학생 기록</button>
           </div>
           <div style="display:flex;gap:10px;flex-wrap:wrap;">
             <button class="link-btn" onclick="openMoveModal('${p.period}','${p.cls}')">다른 날짜로 이동</button>
+              <button class="link-btn" onclick="openSwapModal('${p.period}','${p.cls}')">수업 교체</button>
             <button class="link-btn" style="color:#DC2626;" onclick="deleteClassPeriod('${p.period}','${p.cls}')">수업 삭제</button>
             <button class="link-btn" style="color:#DC2626;" onclick="deleteProgress('${p.cls}','${e.id}')">기록 삭제</button>
           </div>
@@ -1209,6 +1281,7 @@ function renderDayDetail(){
           <div style="display:flex;gap:10px;flex-wrap:wrap;">
             <button class="link-btn" onclick="openOverrideModal('${p.period}','${p.cls}')">행사·기타 활동으로 표시</button>
             <button class="link-btn" onclick="openMoveModal('${p.period}','${p.cls}')">다른 날짜로 이동</button>
+              <button class="link-btn" onclick="openSwapModal('${p.period}','${p.cls}')">수업 교체</button>
             <button class="link-btn" style="color:#DC2626;" onclick="deleteClassPeriod('${p.period}','${p.cls}')">수업 삭제</button>
           </div>
         </div>`;
@@ -1259,11 +1332,27 @@ function renderDayDetail(){
 async function clearOverride(period){
   const dk = STATE.selectedDateKey;
   const ov = (STATE.periodOverrides[dk]||{})[period];
+  const touched = new Set();
   // 이동으로 생긴 override라면, 반대편(이동 전/이동 후) 날짜의 짝도 함께 되돌려줘요
   if(ov){
     let pairDk=null, pairPeriod=null;
     if(ov.movedFrom){ pairDk=ov.movedFrom.date; pairPeriod=ov.movedFrom.period; }
     else if(ov.movedTo){ pairDk=ov.movedTo.date; pairPeriod=ov.movedTo.period; }
+    const pairOv = pairDk!=null ? (STATE.periodOverrides[pairDk]||{})[pairPeriod] : null;
+    // 되돌리면 수업이 원래 자리로 돌아가니, 이미 기록한 진도도 같이 원래 자리로 돌려놓아요
+    if(ov.type==='swap' && ov.movedFrom){
+      if(await moveProgressRecord(ov.cls, dk, period, ov.movedFrom.date, ov.movedFrom.period)) touched.add(ov.cls);
+    } else if(ov.type==='swap' && !ov.movedFrom){
+      const rec = findProgressEntry(ov.cls, dk, Number(period));
+      if(rec && confirm('이 교시에 기록된 진도가 있어요. 되돌리면 이 진도 기록도 함께 삭제할까요?\n(취소를 누르면 기록은 그대로 남아요)')){
+        await dbRemove(`progress/${STATE.termId}/${ov.cls}/${rec.id}`);
+        if(STATE.progress[ov.cls]) delete STATE.progress[ov.cls][rec.id];
+        touched.add(ov.cls);
+      }
+    }
+    if(pairOv && pairOv.type==='swap' && pairOv.movedFrom && pairOv.movedFrom.date===dk && Number(pairOv.movedFrom.period)===Number(period)){
+      if(await moveProgressRecord(pairOv.cls, pairDk, pairPeriod, dk, period)) touched.add(pairOv.cls);
+    }
     if(pairDk!=null){
       await dbRemove(`periodOverrides/${STATE.termId}/${pairDk}/${pairPeriod}`);
       if(STATE.periodOverrides[pairDk]) delete STATE.periodOverrides[pairDk][pairPeriod];
@@ -1271,6 +1360,7 @@ async function clearOverride(period){
   }
   await dbRemove(`periodOverrides/${STATE.termId}/${dk}/${period}`);
   if(STATE.periodOverrides[dk]) delete STATE.periodOverrides[dk][period];
+  for(const c of touched) await renumberProgress(c);
   renderDayDetail();
   renderCalendar();
 }
@@ -1286,56 +1376,96 @@ async function deletePersonalEvent(startDate, id){
 /* ---------------------- 모달: 진도 입력 ---------------------- */
 function openProgressModal(cls, period, isEdit){
   const dk = STATE.selectedDateKey;
-  const existing = isEdit ? findProgressEntry(cls, dk, period) : null;
-  const entries = Object.entries(STATE.progress[cls]||{}).map(([id,v])=>({...v,id})).sort((a,b)=>a.seq-b.seq);
-  const last = existing ? entries.filter(e=>e.seq<existing.seq).slice(-1)[0] : entries.slice(-1)[0];
-  const nextSeq = existing ? existing.seq : entries.length+1;
-
+  period = Number(period);
+  // 같은 반·날짜·교시에 이미 기록이 있으면 새로 만들지 않고 그 기록을 수정하는 화면으로 열어요 (중복 입력 방지)
+  const existing = findProgressEntry(cls, dk, period);
+  const entries = Object.entries(STATE.progress[cls]||{}).map(([id,v])=>({...v,id})).sort(cmpProgress);
+  // "지난 차시"는 이 날짜·교시 바로 앞에 있는 (진도가 나간) 기록이에요
+  const before = entries.filter(e=>(!existing || e.id!==existing.id) && cmpSlot(e,dk,period)<0 && (e.kind||'new')!=='none');
+  const last = before.slice(-1)[0];
+  const curKind = existing ? (existing.kind||'new') : 'new';
   document.getElementById('modalBody').innerHTML = `
-    <div class="modal-title"><span>${cls} · ${nextSeq}차시 진도 기록</span><button onclick="closeModal()">✕</button></div>
+    <div class="modal-title"><span>${cls} · 진도 기록</span><button onclick="closeModal()">✕</button></div>
     ${last ? `<div class="field"><label>지난 차시 끝난 지점 (자동 표시)</label>
-      <div style="font-size:12.5px;color:#6B7280;background:#F9FAFB;border:1px solid #E5E7EB;border-radius:8px;padding:9px 10px;">${last.endPoint||'-'}</div></div>` : ''}
+      <div style="font-size:12.5px;color:#6B7280;background:#F9FAFB;border:1px solid #E5E7EB;border-radius:8px;padding:9px 10px;">${last.seq}차시 · ${escHtml(last.endPoint||'-')}</div></div>` : ''}
+    <div class="field"><label>이번 수업은</label>
+      <select id="pf_kind">
+        <option value="new" ${curKind==='new'?'selected':''}>새 차시로 기록 (기본)</option>
+        <option value="same" ${curKind==='same'?'selected':''}>앞 차시와 같은 내용 (같은 차시 번호 유지)</option>
+        <option value="none" ${curKind==='none'?'selected':''}>진도 안 나감 (자습·복습 등, 차시 번호 없음)</option>
+      </select></div>
     <div class="field"><label>사용 자료</label>
       <select id="pf_material">
         <option value="교과서" ${existing&&existing.material==='교과서'?'selected':''}>교과서</option>
         <option value="학습지" ${existing&&existing.material==='학습지'?'selected':''}>학습지</option>
         <option value="프린트" ${existing&&existing.material==='프린트'?'selected':''}>프린트</option>
       </select></div>
-    <div class="field"><label>어디까지 나갔는지</label>
-      <input id="pf_end" placeholder="예: p.181 문제2까지" value="${existing?existing.endPoint||'':''}"></div>
+    <div class="field"><label>어디까지 나갔는지 (진도 안 나감이면 비워도 돼요)</label>
+      <input id="pf_end" placeholder="예: p.181 문제2까지" value="${existing?escHtml(existing.endPoint||'').replace(/"/g,'&quot;'):''}"></div>
     <div class="field"><label>비고 (선택)</label>
-      <textarea id="pf_note">${existing?existing.note||'':''}</textarea></div>
-    <button class="btn primary full" onclick="saveProgress('${cls}',${period},${nextSeq},${last?`'${(last.endPoint||'').replace(/'/g,"\\'")}'`:'null'}${existing?`,'${existing.id}'`:''})">저장</button>
+      <textarea id="pf_note" placeholder="예: 자습">${existing?escHtml(existing.note||''):''}</textarea></div>
+    <button id="pf_saveBtn" class="btn primary full" onclick="saveProgress('${cls}',${period},0,''${existing?`,'${existing.id}'`:''})">저장</button>
   `;
   document.getElementById('modalOverlay').classList.add('open');
 }
 
+let _savingProgress = false;
 async function saveProgress(cls, period, seq, startPoint, existingId){
+  if(_savingProgress) return; // 저장 버튼을 두 번 눌러도 한 번만 저장돼요
   const material = document.getElementById('pf_material').value;
   const endPoint = document.getElementById('pf_end').value.trim();
   const note = document.getElementById('pf_note').value.trim();
-  if(!endPoint){ alert('어디까지 나갔는지 입력해주세요'); return; }
-  const existingEntry = existingId ? (STATE.progress[cls]||{})[existingId] : null;
-  const data = {seq, date:STATE.selectedDateKey, period, cls, material, startPoint:startPoint||'', endPoint, unit:(existingEntry?existingEntry.unit||'':''), note, createdAt:Date.now()};
-  if(existingId){
-    await dbSet(`progress/${STATE.termId}/${cls}/${existingId}`, data);
-    STATE.progress[cls][existingId]=data;
-  } else {
-    const res = await dbPush(`progress/${STATE.termId}/${cls}`, data);
-    STATE.progress[cls] = STATE.progress[cls]||{};
-    STATE.progress[cls][res.name]=data;
+  const kind = document.getElementById('pf_kind').value;
+  if(!endPoint && kind!=='none'){ alert('어디까지 나갔는지 입력해주세요'); return; }
+  _savingProgress = true;
+  const btn = document.getElementById('pf_saveBtn');
+  const resetBtn = ()=>{ if(btn){ btn.disabled=false; btn.textContent='저장'; } };
+  if(btn){ btn.disabled = true; btn.textContent = '저장 중...'; }
+  try{
+    const dk = STATE.selectedDateKey;
+    // 저장 직전에 서버의 최신 기록을 다시 읽어서, 같은 반·날짜·교시 기록이 이미 있는지 확인해요
+    let fresh;
+    try{
+      const r = await fetch(dbPath(`progress/${STATE.termId}/${cls}`));
+      if(!r.ok) throw new Error(r.status);
+      fresh = (await r.json()) || {};
+    }catch(e){
+      toast('저장 실패 · 인터넷 연결을 확인해주세요','error');
+      resetBtn();
+      return;
+    }
+    STATE.progress[cls] = fresh;
+    let targetId = existingId || null;
+    if(!targetId){
+      const dup = Object.entries(fresh).find(([id,v])=>v.date===dk && Number(v.period)===Number(period));
+      if(dup) targetId = dup[0]; // 이미 있으면 새로 추가하지 않고 그 기록을 덮어써요
+    }
+    const prev = targetId ? fresh[targetId] : null;
+    const data = {seq:(prev&&prev.seq)||0, kind, date:dk, period:Number(period), cls, material, startPoint:startPoint||'', endPoint, unit:(prev?prev.unit||'':''), note, createdAt:(prev&&prev.createdAt)?prev.createdAt:Date.now()};
+    if(targetId){
+      await dbSet(`progress/${STATE.termId}/${cls}/${targetId}`, data);
+      STATE.progress[cls][targetId]=data;
+    } else {
+      const res = await dbPush(`progress/${STATE.termId}/${cls}`, data);
+      STATE.progress[cls][res.name]=data;
+    }
+    await renumberProgress(cls);
+    closeModal();
+    renderDayDetail();
+    renderCalendar();
+  }catch(e){
+    resetBtn();
+  }finally{
+    _savingProgress = false;
   }
-  closeModal();
-  renderDayDetail();
-  renderCalendar();
 }
 
 async function deleteProgress(cls, id){
   if(!confirm('이 진도 기록을 정말 삭제할까요? 삭제하면 되돌릴 수 없어요.')) return;
   await dbRemove(`progress/${STATE.termId}/${cls}/${id}`);
   if(STATE.progress[cls]) delete STATE.progress[cls][id];
-  renderDayDetail();
-  renderCalendar();
+  await renumberProgress(cls);
+  refreshAfterProgressChange(cls);
 }
 
 /* ---------------------- 모달: 행사/기타활동 지정 ---------------------- */
@@ -1448,7 +1578,89 @@ async function saveMove(period, cls){
   STATE.periodOverrides[toDk][toPeriod] = destData;
   STATE.periodOverrides[fromDk] = STATE.periodOverrides[fromDk]||{};
   STATE.periodOverrides[fromDk][period] = srcData;
+  // 이미 기록한 진도가 있으면 수업과 함께 새 날짜·교시로 옮겨요 (원래 자리에 기록이 남아 중복되는 것을 막아요)
+  if(await moveProgressRecord(cls, fromDk, period, toDk, toPeriod)){
+    await renumberProgress(cls);
+    toast('기록된 진도도 함께 옮겼어요','ok');
+  }
   closeModal(); renderDayDetail(); renderCalendar();
+}
+
+/* ---------------------- 수업 교체 (두 수업의 자리를 서로 맞바꾸기) ---------------------- */
+function getSwapTarget(dkB, pB, dkA, pA){
+  if(!dkB) return {ok:false, msg:'교체할 날짜를 선택해주세요.'};
+  if(dkB===dkA && Number(pB)===Number(pA)) return {ok:false, msg:'지금 보고 있는 수업과 같은 시간이에요.'};
+  const slot = getPeriodsForDate(parseDateKey(dkB)).find(p=>p.period===Number(pB));
+  if(!slot) return {ok:false, msg:'이 시간엔 수업이 없어요. 수업이 있는 시간을 골라주세요. (수업만 옮기고 싶다면 "다른 날짜로 이동"을 이용해주세요)'};
+  if(slot.status==='holiday') return {ok:false, msg:`${slot.holidayType||'학사일정'}이라 수업이 없는 날이에요.`};
+  if(!['recorded','unrecorded','swap'].includes(slot.status) || !slot.cls) return {ok:false, msg:'수업이 아닌 일정(행사·이동·삭제된 시간)이라 교체할 수 없어요.'};
+  return {ok:true, cls:slot.cls, slot};
+}
+function openSwapModal(period, cls){
+  const dk = STATE.selectedDateKey;
+  const periodOpts = getPeriodOptions();
+  document.getElementById('modalBody').innerHTML = `
+    <div class="modal-title"><span>${period}교시 · ${cls} 수업 교체</span><button onclick="closeModal()">✕</button></div>
+    <div style="font-size:11.5px;color:#9CA3AF;margin-top:-4px;margin-bottom:10px;">이 수업과 다른 날(또는 다른 교시)의 수업을 서로 맞바꿔요. 이미 기록한 진도가 있으면 수업과 함께 자리가 바뀌어요.</div>
+    <div class="field"><label>교체할 수업의 날짜</label><input id="sw_date" type="date" value="${dk}" onchange="updateSwapPreview('${period}')"></div>
+    <div class="field"><label>교체할 수업의 교시</label>
+      <select id="sw_period" onchange="updateSwapPreview('${period}')">${periodOpts.map(p=>`<option value="${p}" ${p===String(period)?'selected':''}>${p}교시</option>`).join('')}</select></div>
+    <div id="sw_preview" style="font-size:12.5px;margin:2px 0 12px;"></div>
+    <button class="btn primary full" id="sw_saveBtn" onclick="saveSwap('${period}','${cls}')">교체하기</button>
+  `;
+  document.getElementById('modalOverlay').classList.add('open');
+  updateSwapPreview(period);
+}
+function updateSwapPreview(periodA){
+  const el = document.getElementById('sw_preview');
+  if(!el) return;
+  const t = getSwapTarget(document.getElementById('sw_date').value, document.getElementById('sw_period').value, STATE.selectedDateKey, periodA);
+  if(t.ok){
+    const hasRec = !!t.slot.progressEntry;
+    el.style.color = '#1F2937';
+    el.innerHTML = `그 시간엔 <b>${t.cls}</b> 수업이 있어요${hasRec?' (진도 기록 있음)':''}.`;
+  } else {
+    el.style.color = '#B91C1C';
+    el.textContent = t.msg;
+  }
+}
+let _swapping = false;
+async function saveSwap(periodA, clsA){
+  if(_swapping) return;
+  const dkA = STATE.selectedDateKey;
+  const dkB = document.getElementById('sw_date').value;
+  const pB = document.getElementById('sw_period').value;
+  const t = getSwapTarget(dkB, pB, dkA, periodA);
+  if(!t.ok){ alert(t.msg); return; }
+  const clsB = t.cls;
+  if(clsB===clsA){ alert('같은 반끼리는 교체할 수 없어요. 한 수업만 옮기려면 "다른 날짜로 이동"을 이용해주세요.'); return; }
+  if(!confirm(`${fmtShort(dkA)} ${periodA}교시 ${clsA}  ↔  ${fmtShort(dkB)} ${pB}교시 ${clsB}\n\n두 수업을 서로 교체할까요?`)) return;
+  _swapping = true;
+  const btn = document.getElementById('sw_saveBtn');
+  if(btn){ btn.disabled = true; btn.textContent = '교체 중...'; }
+  try{
+    await unlinkPartnerIfAny(dkA, periodA);
+    await unlinkPartnerIfAny(dkB, pB);
+    const dataA = {type:'swap', cls:clsB, movedFrom:{date:dkB, period:Number(pB)}};
+    const dataB = {type:'swap', cls:clsA, movedFrom:{date:dkA, period:Number(periodA)}};
+    await dbSet(`periodOverrides/${STATE.termId}/${dkA}/${periodA}`, dataA);
+    await dbSet(`periodOverrides/${STATE.termId}/${dkB}/${pB}`, dataB);
+    STATE.periodOverrides[dkA] = STATE.periodOverrides[dkA]||{};
+    STATE.periodOverrides[dkA][periodA] = dataA;
+    STATE.periodOverrides[dkB] = STATE.periodOverrides[dkB]||{};
+    STATE.periodOverrides[dkB][pB] = dataB;
+    // 이미 기록한 진도는 수업을 따라 서로 자리가 바뀌어요
+    const m1 = await moveProgressRecord(clsA, dkA, periodA, dkB, pB);
+    const m2 = await moveProgressRecord(clsB, dkB, pB, dkA, periodA);
+    if(m1) await renumberProgress(clsA);
+    if(m2) await renumberProgress(clsB);
+    closeModal(); renderDayDetail(); renderCalendar();
+    toast('수업을 교체했어요','ok');
+  }catch(e){
+    if(btn){ btn.disabled=false; btn.textContent='교체하기'; }
+  }finally{
+    _swapping = false;
+  }
 }
 
 /* ---------------------- 수업 삭제 (원래 있던 수업이 그냥 없어지는 경우) ---------------------- */
@@ -1776,31 +1988,77 @@ async function savePersonalEvent(origStartDate, id){
 }
 
 /* ---------------------- 모달: 학생 기록 추가 ---------------------- */
+let _srMatched = [];
+// 시간표의 반 이름("2-1")과 명단의 반 이름이 조금 달라도("2-1반", "2학년 1반", "1" 등) 같은 반으로 찾아줘요.
+function normClassName(x){
+  return String(x==null?'':x).replace(/\s+/g,'').replace(/학년/g,'-').replace(/반/g,'').replace(/[^0-9\-]/g,'').replace(/^-+|-+$/g,'');
+}
+function studentsOfClass(cls){
+  const all = Object.entries(STATE.students);
+  const exact = all.filter(([id,s])=>s.class===cls);
+  if(exact.length) return exact;
+  const n = normClassName(cls);
+  if(n){
+    const byNorm = all.filter(([id,s])=>normClassName(s.class)===n);
+    if(byNorm.length) return byNorm;
+    const lastNum = n.split('-').pop();
+    // 시간표에 마지막 숫자가 같은 다른 반(예: 2-1과 3-1)이 함께 있으면 어느 학년인지 알 수 없으니 추측하지 않아요
+    const sameLast = getAllClassNames().filter(c=>normClassName(c).split('-').pop()===lastNum);
+    if(sameLast.length>1) return [];
+    const byLast = all.filter(([id,s])=>{ const m=normClassName(s.class); return m && m.indexOf('-')<0 && m===lastNum; });
+    if(byLast.length) return byLast;
+  }
+  return [];
+}
+function srOptionsHtml(list){
+  return list.slice().sort((a,b)=>(a[1].number||0)-(b[1].number||0))
+    .map(([id,s])=>`<option value="${id}">${s.number}번 ${escHtml(s.name)}</option>`).join('') || '<option value="">등록된 학생이 없어요</option>';
+}
+function refreshSrStudents(){
+  const sel = document.getElementById('sr_class');
+  const list = sel ? Object.entries(STATE.students).filter(([id,s])=>s.class===sel.value) : _srMatched;
+  document.getElementById('sr_student').innerHTML = srOptionsHtml(list);
+}
 function openStudentRecordModal(cls){
-  const studentsInClass = Object.entries(STATE.students).filter(([id,s])=>s.class===cls).sort((a,b)=>a[1].number-b[1].number);
+  _srMatched = studentsOfClass(cls);
+  const rosterClasses = [...new Set(Object.values(STATE.students).map(s=>s.class))].sort();
+  // 시간표 반 이름과 맞는 명단을 못 찾았을 때만, 명단의 반을 직접 고를 수 있게 해줘요
+  const needPick = !_srMatched.length && rosterClasses.length>0;
+  const q = (v)=>String(v).replace(/"/g,'&quot;');
   document.getElementById('modalBody').innerHTML = `
     <div class="modal-title"><span>${cls} 학생 기록</span><button onclick="closeModal()">✕</button></div>
+    ${needPick ? `<div style="font-size:11.5px;color:#B45309;background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px;padding:8px 10px;margin-bottom:10px;">시간표의 '${escHtml(cls)}'와 같은 이름의 반을 명단에서 찾지 못했어요. 아래에서 명단의 반을 골라주세요.</div>
+    <div class="field"><label>명단의 반</label>
+      <select id="sr_class" onchange="refreshSrStudents()">${rosterClasses.map(c=>`<option value="${q(c)}">${escHtml(c)}</option>`).join('')}</select></div>` : ''}
     <div class="field"><label>학생</label>
-      <select id="sr_student">${studentsInClass.map(([id,s])=>`<option value="${id}">${s.number}번 ${s.name}</option>`).join('') || '<option value="">등록된 학생이 없어요</option>'}</select></div>
+      <select id="sr_student"></select></div>
     <div class="field"><label>구분</label>
       <select id="sr_tag">${TAG_LIST.map(t=>`<option>${t}</option>`).join('')}</select></div>
     <div class="field"><label>내용</label><textarea id="sr_note" placeholder="예: 문제 풀이 발표함, 논리 전개 정확함"></textarea></div>
     <button class="btn primary full" onclick="saveStudentRecord('${cls}')">저장</button>
   `;
+  refreshSrStudents();
   document.getElementById('modalOverlay').classList.add('open');
 }
+let _savingStudentRec = false;
 async function saveStudentRecord(cls){
+  if(_savingStudentRec) return;
   const studentId = document.getElementById('sr_student').value;
   if(!studentId){ alert('학생 명단을 먼저 등록해주세요 (설정 탭)'); return; }
   const tag = document.getElementById('sr_tag').value;
   const note = document.getElementById('sr_note').value.trim();
   if(!note){ alert('내용을 입력해주세요'); return; }
-  const studentName = STATE.students[studentId].name;
-  const data = {studentId, studentName, class:cls, date:STATE.selectedDateKey, tag, note, createdAt:Date.now()};
-  const res = await dbPush(`studentRecords/${STATE.termId}`, data);
-  STATE.studentRecords[res.name]=data;
-  closeModal();
-  toast('학생 기록이 저장됐어요','ok');
+  _savingStudentRec = true;
+  try{
+    const studentName = STATE.students[studentId].name;
+    const data = {studentId, studentName, class:cls, date:STATE.selectedDateKey, tag, note, createdAt:Date.now()};
+    const res = await dbPush(`studentRecords/${STATE.termId}`, data);
+    STATE.studentRecords[res.name]=data;
+    closeModal();
+    toast('학생 기록이 저장됐어요','ok');
+  }finally{
+    _savingStudentRec = false;
+  }
 }
 
 async function deleteStudentRecord(id){
@@ -1818,50 +2076,159 @@ function closeImgLightbox(){ document.getElementById('imgLightbox').classList.re
 /* ======================================================================
    진도표 화면
    ====================================================================== */
+function seqLabel(e){
+  const k = e.kind || 'new';
+  if(k==='none') return '진도 없음';
+  return `${e.seq}차시${k==='same'?'(이어서)':''}`;
+}
+function progressSummary(e){
+  return `${seqLabel(e)} · ${e.material?e.material+' · ':''}${escHtml(e.endPoint||e.note||'-')}`;
+}
+function classProgressStats(cls){
+  const entries = Object.values(STATE.progress[cls]||{}).sort(cmpProgress);
+  const numbered = entries.filter(e=>(e.kind||'new')!=='none');
+  const maxSeq = numbered.reduce((m,e)=>Math.max(m,e.seq||0),0);
+  return {entries, maxSeq, noneCount: entries.length-numbered.length, last: numbered.slice(-1)[0]};
+}
+
+// 학기 시작일~종료일 사이의 수업 가능한 평일(공휴일·방학 등 제외) 중 오늘까지 지난 비율
+function estimateExpectedPct(){
+  if(!STATE.termStart || !STATE.termEnd) return null;
+  const s0 = parseDateKey(STATE.termStart), e0 = parseDateKey(STATE.termEnd), today = parseDateKey(todayKey());
+  let total = 0, done = 0;
+  for(let d = new Date(s0); d <= e0; d.setDate(d.getDate()+1)){
+    const dow = d.getDay(); if(dow===0 || dow===6) continue;
+    const dk = dateKey(d);
+    const ac = Object.values(STATE.academicCalendar).find(x=> dk>=x.start && dk<=x.end);
+    if(isBlockingAcEntry(ac)) continue;
+    total++; if(d<=today) done++;
+  }
+  return total ? Math.round(done/total*100) : null;
+}
+
+/* ---------------------- 미기록 수업 모아보기 ---------------------- */
+function defaultTermStart(){
+  const m = String(STATE.termId||'').match(/^(\d{4})-(\d)$/);
+  if(m) return m[2]==='1' ? `${m[1]}-03-01` : `${m[1]}-09-01`;
+  const d = new Date(); d.setDate(d.getDate()-60); return dateKey(d);
+}
+function periodEnded(p){
+  const t = STATE.periodTimes[p];
+  if(!t) return true;
+  const end = (t.split('-')[1]||'').split(':').map(Number);
+  if(end.length<2 || isNaN(end[0])) return true;
+  const now = new Date();
+  return now.getHours()*60+now.getMinutes() >= end[0]*60+end[1];
+}
+function getMissingRecords(){
+  const startKey = STATE.missingSince || STATE.termStart || defaultTermStart();
+  const tk = todayKey();
+  const out = [];
+  for(let d = parseDateKey(startKey); dateKey(d) <= tk; d.setDate(d.getDate()+1)){
+    if(d.getDay()===0 || d.getDay()===6) continue;
+    const dk = dateKey(d);
+    getPeriodsForDate(d).forEach(p=>{
+      const miss = p.status==='unrecorded' || (p.status==='swap' && !p.progressEntry);
+      if(!miss || !p.cls) return;
+      if(dk===tk && !periodEnded(p.period)) return; // 오늘은 이미 끝난 교시만
+      out.push({dk, period:p.period, cls:p.cls});
+    });
+  }
+  return out;
+}
+function renderMissingBanner(){
+  const wrap = document.getElementById('missingBanner');
+  if(!wrap) return;
+  const n = getMissingRecords().length;
+  if(!n){ wrap.style.display='none'; wrap.innerHTML=''; return; }
+  wrap.innerHTML = `<div class="today-events" style="border-color:#FDBA74;cursor:pointer;flex-direction:row;justify-content:space-between;" onclick="showScreen('progress')">
+    <span style="font-size:12.5px;font-weight:700;color:#C2410C;">기록하지 않은 수업 ${n}개</span><span style="font-size:12px;color:#C2410C;">목록 보기 ›</span></div>`;
+  wrap.style.display = 'block';
+}
+function toggleMissingExpanded(){ STATE.missingExpanded = !STATE.missingExpanded; renderProgressScreen(); }
+function renderMissingCard(){
+  const list = getMissingRecords();
+  if(!list.length){
+    return `<div class="class-card" style="display:flex;justify-content:space-between;align-items:center;"><span style="font-size:13px;font-weight:700;">미기록 수업</span><span style="font-size:12px;color:#16A34A;font-weight:700;">모두 기록했어요 ✓</span></div>`;
+  }
+  const ordered = [...list].reverse(); // 최근 것부터
+  const shown = STATE.missingExpanded ? ordered : ordered.slice(0,5);
+  const rows = shown.map(m=>`<button class="link-btn" style="display:flex;width:100%;justify-content:space-between;padding:8px 0;border-bottom:1px solid #F1F1EF;color:var(--ink);font-weight:600;" onclick="openDayDetail('${m.dk}')">
+      <span>${fmtShort(m.dk)}(${WEEKDAY_KR[parseDateKey(m.dk).getDay()]}) ${m.period}교시</span><span style="color:var(--blue);">${m.cls} ›</span></button>`).join('');
+  const more = list.length>5 ? `<button class="link-btn" onclick="toggleMissingExpanded()">${STATE.missingExpanded?'접기':`전체 ${list.length}개 보기`}</button>` : '';
+  return `<div class="class-card" style="border:1.5px solid #FDBA74;">
+    <div class="ct"><div style="font-weight:700;font-size:13.5px;">미기록 수업</div><div style="font-size:12px;font-weight:700;color:#C2410C;">${list.length}개</div></div>
+    <div style="font-size:11px;color:#9CA3AF;margin:3px 0 4px;">눌러서 바로 기록하세요. 기록이 필요 없는 시간은 "행사·기타 활동으로 표시"를 이용해주세요. 오래된 날짜는 설정의 "미기록 확인 시작일"로 숨길 수 있어요.</div>
+    ${rows}${more}
+  </div>`;
+}
+
+/* ---------------------- 같은 학년 반별 진도 비교 ---------------------- */
+function renderGradeCompare(classes){
+  const groups = {};
+  classes.forEach(c=>{ const g = c.includes('-') ? c.split('-')[0] : ''; (groups[g] = groups[g]||[]).push(c); });
+  const blocks = Object.entries(groups).filter(([g,list])=>list.length>1).map(([g,list])=>{
+    const stats = list.map(c=>({cls:c, ...classProgressStats(c)}));
+    const lead = Math.max(...stats.map(x=>x.maxSeq));
+    const rows = stats.map(x=>{
+      const diff = lead - x.maxSeq;
+      const tag = diff===0 ? `<span style="color:#16A34A;font-weight:700;">${lead===0?'-':'선두'}</span>` : `<span style="color:#C2410C;font-weight:700;">${diff}차시 뒤</span>`;
+      return `<div class="cal-row-item"><div style="width:48px;font-weight:700;">${x.cls}</div><div style="width:56px;">${x.maxSeq}차시</div><div style="width:64px;">${tag}</div><div style="flex:1;color:#6B7280;font-size:12px;">${x.last?escHtml(x.last.endPoint||''):'기록 없음'}</div></div>`;
+    }).join('');
+    return `<div class="settings-section" style="margin-top:6px;"><div class="sst">${g?g+'학년 ':''}반별 진도 비교</div>${rows}</div>`;
+  }).join('');
+  if(!blocks) return '';
+  return blocks + `<div style="font-size:11px;color:#9CA3AF;margin:-6px 0 8px;">같은 내용을 다룬 수업이 같은 차시가 되도록, 자습·복습은 진도 기록에서 "진도 안 나감"으로 기록해주세요.</div>`;
+}
+
 function renderProgressScreen(){
   const classes = [...new Set(Object.values(STATE.timetable).flatMap(day=>Object.values(day)).filter(Boolean))].sort();
+  const exp = estimateExpectedPct();
   let html = `<div class="row-flex">
     <div style="font-size:18px;font-weight:700;">진도표</div>
     <div style="font-size:12px;color:#9CA3AF;">${STATE.termId}</div>
   </div>`;
+  html += renderMissingCard();
+  if(exp!==null) html += `<div style="font-size:12px;color:#6B7280;">오늘 기준으로 진도율이 약 <b>${exp}%</b>쯤이면 예정대로예요.</div>`;
+  else if(STATE.targetSessions) html += `<div style="font-size:11.5px;color:#9CA3AF;">설정 탭에서 학기 시작일·종료일을 입력하면 진도가 늦어졌는지 알려드려요.</div>`;
 
   if(!classes.length){ html += `<div class="empty-hint">설정 탭에서 시간표를 먼저 등록해주세요.</div>`; }
 
   classes.forEach(cls=>{
-    const entries = Object.entries(STATE.progress[cls]||{}).map(([id,v])=>({...v,id})).sort((a,b)=>a.seq-b.seq);
-    const last = entries.slice(-1)[0];
-    const pct = STATE.targetSessions ? Math.min(100, Math.round((entries.length/STATE.targetSessions)*100)) : null;
-    const delayed = pct!==null && pct < estimateExpectedPct();
+    const st = classProgressStats(cls);
+    const pct = STATE.targetSessions ? Math.min(100, Math.round((st.maxSeq/STATE.targetSessions)*100)) : null;
+    const delayed = pct!==null && exp!==null && pct < exp-5;
     html += `<div class="class-card">
       <div class="ct">
         <div style="font-weight:700;font-size:13.5px;">${cls}</div>
-        <div style="font-size:12px;font-weight:700;color:${pct===null?'#9CA3AF':(delayed?'#C2410C':'#2563EB')};">${entries.length}차시${pct!==null?` · ${pct}%`:''}</div>
+        <div style="font-size:12px;font-weight:700;color:${pct===null?'#9CA3AF':(delayed?'#C2410C':'#2563EB')};">${st.maxSeq}차시${pct!==null?` · ${pct}%`:''}${delayed?' · 지연':''}</div>
       </div>
-      <div style="font-size:12px;color:#6B7280;margin-top:4px;">${last? (last.endPoint||''):'아직 기록된 진도가 없어요'}</div>
+      <div style="font-size:12px;color:#6B7280;margin-top:4px;">${st.last? escHtml(st.last.endPoint||''):'아직 기록된 진도가 없어요'}</div>
+      <div style="font-size:11px;color:#9CA3AF;margin-top:2px;">수업 ${st.entries.length}회${st.noneCount?` (진도 안 나감 ${st.noneCount}회)`:''}</div>
       ${pct!==null?`<div class="bar-track"><div class="bar-fill" style="width:${pct}%;background:${delayed?'#EA580C':'#2563EB'};"></div></div>`:''}
       <button class="link-btn" onclick="showClassHistory('${cls}')">히스토리 보기</button>
     </div>`;
   });
 
+  html += renderGradeCompare(classes);
   html += `<button class="btn ghost full" onclick="exportProgressCSV()" style="margin-top:6px;">진도 기록 CSV로 내보내기</button>`;
   html += `<div id="classHistoryArea"></div>`;
   document.getElementById('progressBody').innerHTML = html;
 }
 
-function estimateExpectedPct(){
-  // 아주 단순한 기준: 학기 시작 대비 오늘까지 경과 비율 (설정에 목표가 없으면 사용 안 함)
-  return 50;
-}
-
 function showClassHistory(cls){
-  const entries = Object.entries(STATE.progress[cls]||{}).map(([id,v])=>({...v,id})).sort((a,b)=>a.seq-b.seq);
+  const entries = Object.entries(STATE.progress[cls]||{}).map(([id,v])=>({...v,id})).sort(cmpProgress);
+  const slotCount = {};
+  entries.forEach(e=>{ const k=e.date+'|'+e.period; slotCount[k]=(slotCount[k]||0)+1; });
   let html = `<div class="settings-section" style="margin-top:10px;">
     <div class="sst">${cls} · 진도 히스토리</div>`;
   if(!entries.length){ html += `<div class="empty-hint">기록이 없어요.</div>`; }
   entries.forEach((e,i)=>{
-    html += `<div class="tl-entry ${i===entries.length-1?'now':''}">
-      <div class="tld">${e.seq}차시 · ${fmtShort(e.date)}</div>
-      <div class="tlc">${e.material?`[${e.material}] `:''}${e.startPoint?`${e.startPoint} → `:''}${e.endPoint}${e.note?` · ${e.note}`:''}</div>
+    const dup = slotCount[e.date+'|'+e.period]>1;
+    html += `<div class="tl-entry ${i===entries.length-1?'now':''}" style="align-items:flex-start;">
+      <div class="tld" style="width:118px;">${seqLabel(e)}<br>${fmtShort(e.date)}${e.period?` ${e.period}교시`:''}</div>
+      <div class="tlc" style="flex:1;min-width:0;">${dup?'<span class="badge orange" style="margin-right:4px;">중복 의심</span>':''}${e.material?`[${e.material}] `:''}${e.startPoint&&(e.kind||'new')!=='none'?`${escHtml(e.startPoint)} → `:''}${escHtml(e.endPoint||'')}${e.note?` · ${escHtml(e.note)}`:''}</div>
+      <button class="iconbtn" title="이 기록 삭제" onclick="deleteProgress('${cls}','${e.id}')">✕</button>
     </div>`;
   });
   html += `</div>`;
@@ -1869,10 +2236,12 @@ function showClassHistory(cls){
 }
 
 function exportProgressCSV(){
-  let rows = [['반','차시','날짜','자료','시작지점','끝난지점','단원','비고']];
+  let rows = [['반','차시','날짜','교시','구분','자료','시작지점','끝난지점','비고']];
+  const kindLabel = {new:'새 차시', same:'이어서', none:'진도 없음'};
   Object.entries(STATE.progress).forEach(([cls,entries])=>{
-    Object.values(entries).sort((a,b)=>a.seq-b.seq).forEach(e=>{
-      rows.push([cls,e.seq,e.date,e.material||'',e.startPoint||'',e.endPoint||'',e.unit||'',e.note||'']);
+    Object.values(entries).sort(cmpProgress).forEach(e=>{
+      const k = e.kind||'new';
+      rows.push([cls, k==='none'?'':e.seq, e.date, e.period||'', kindLabel[k]||'', e.material||'', e.startPoint||'', e.endPoint||'', e.note||'']);
     });
   });
   downloadCSV(rows, `진도표_${STATE.termId}.csv`);
@@ -1881,7 +2250,43 @@ function exportProgressCSV(){
 /* ======================================================================
    학생기록 화면
    ====================================================================== */
+function renderStatsPanel(){
+  const roster = Object.entries(STATE.students);
+  const classes = [...new Set(roster.map(([id,s])=>s.class))].sort();
+  if(!classes.length) return '';
+  if(!classes.includes(STATE.statsClass)) STATE.statsClass = classes[0];
+  let from = '';
+  if(STATE.statsRange!=='all'){ const d = parseDateKey(todayKey()); d.setDate(d.getDate()-Number(STATE.statsRange)); from = dateKey(d); }
+  const recs = Object.values(STATE.studentRecords).filter(r=>!from || r.date>=from);
+  const members = roster.filter(([id,s])=>s.class===STATE.statsClass).sort((a,b)=>(a[1].number||0)-(b[1].number||0));
+  const rows = members.map(([id,s])=>{
+    const c = {}; TAG_LIST.forEach(t=>c[t]=0);
+    recs.forEach(r=>{ if(r.studentId===id && c[r.tag]!==undefined) c[r.tag]++; });
+    return {id, s, c};
+  });
+  const noPres = rows.filter(r=>r.c['발표']===0);
+  const body = rows.map(r=>`<div class="cal-row-item" style="cursor:pointer;" onclick="selectStudent('${r.id}')">
+      <div style="width:70px;">${r.s.number}번 ${escHtml(r.s.name)}</div>
+      ${TAG_LIST.map(t=>`<div style="flex:1;text-align:center;${t==='발표'&&r.c[t]===0?'color:#C2410C;font-weight:700;':''}">${r.c[t]}</div>`).join('')}
+    </div>`).join('');
+  return `<div class="settings-section">
+    <div class="sst">기록 통계</div>
+    <div style="display:flex;gap:8px;margin-bottom:8px;">
+      <select class="term-select" style="flex:1;" onchange="STATE.statsClass=this.value;renderStudentsScreen();">${classes.map(c=>`<option value="${escHtml(c)}" ${c===STATE.statsClass?'selected':''}>${escHtml(c)}</option>`).join('')}</select>
+      <select class="term-select" style="flex:1;" onchange="STATE.statsRange=this.value;renderStudentsScreen();">
+        <option value="all" ${STATE.statsRange==='all'?'selected':''}>전체 기간</option>
+        <option value="30" ${STATE.statsRange==='30'?'selected':''}>최근 30일</option>
+        <option value="7" ${STATE.statsRange==='7'?'selected':''}>최근 7일</option></select>
+    </div>
+    <div class="cal-row-item" style="color:var(--gray-faint);font-size:11px;font-weight:700;"><div style="width:70px;">학생</div>${TAG_LIST.map(t=>`<div style="flex:1;text-align:center;">${t}</div>`).join('')}</div>
+    ${body}
+    <div style="font-size:12px;margin-top:8px;color:${noPres.length?'#C2410C':'#16A34A'};">${noPres.length?`발표 기록이 없는 학생 ${noPres.length}명: ${noPres.map(r=>escHtml(r.s.name)).join(', ')}`:'모든 학생에게 발표 기록이 있어요 ✓'}</div>
+  </div>`;
+}
+
 function renderStudentsScreen(){
+  const searchEl = document.getElementById('stuSearch');
+  const hadFocus = searchEl && document.activeElement===searchEl;
   const q = STATE.studentSearch.trim();
   const classGroups = {};
   Object.entries(STATE.students).forEach(([id,s])=>{
@@ -1892,60 +2297,183 @@ function renderStudentsScreen(){
 
   let listHtml='';
   Object.keys(classGroups).sort().forEach(cls=>{
-    listHtml += `<div style="font-size:11px;color:#9CA3AF;font-weight:700;padding:8px 2px 4px;">${cls}</div>`;
+    listHtml += `<div style="font-size:11px;color:#9CA3AF;font-weight:700;padding:8px 2px 4px;">${escHtml(cls)}</div>`;
     classGroups[cls].sort((a,b)=>a.number-b.number).forEach(s=>{
-      listHtml += `<div class="stu-row ${STATE.selectedStudentId===s.id?'sel':''}" onclick="selectStudent('${s.id}')">${s.number}번 ${s.name}</div>`;
+      listHtml += `<div class="stu-row ${STATE.selectedStudentId===s.id?'sel':''}" onclick="selectStudent('${s.id}')">${s.number}번 ${escHtml(s.name)}</div>`;
     });
   });
   if(!Object.keys(classGroups).length) listHtml = `<div class="empty-hint">등록된 학생이 없어요. 설정 탭에서 명단을 업로드해주세요.</div>`;
 
-  let detailHtml = `<div class="empty-hint">왼쪽에서 학생을 선택해주세요.</div>`;
+  let detailHtml = `<div class="empty-hint">학생을 선택해주세요.</div>`;
   if(STATE.selectedStudentId && STATE.students[STATE.selectedStudentId]){
     detailHtml = renderStudentDetail(STATE.selectedStudentId);
   }
 
   document.getElementById('studentsBody').innerHTML = `
-    <div style="font-size:18px;font-weight:700;">학생 기록</div>
+    <div class="row-flex"><div style="font-size:18px;font-weight:700;">학생 기록</div>
+      <div style="display:flex;gap:6px;">
+        <button class="btn ghost" style="flex:none;padding:7px 10px;" onclick="STATE.statsOpen=!STATE.statsOpen;renderStudentsScreen();">${STATE.statsOpen?'통계 닫기':'📊 통계'}</button>
+        <button class="btn ghost" style="flex:none;padding:7px 10px;" onclick="openStudentEditModal()">+ 학생 추가</button>
+      </div></div>
+    ${STATE.statsOpen ? renderStatsPanel() : ''}
     <div class="stu-layout">
       <div class="stu-list-col">
-        <input class="search-box" placeholder="학생 이름 검색" value="${q}" oninput="STATE.studentSearch=this.value;renderStudentsScreen();">
+        <input id="stuSearch" class="search-box" placeholder="학생 이름 검색" value="${escHtml(q).replace(/"/g,'&quot;')}" oninput="STATE.studentSearch=this.value;renderStudentsScreen();">
         <div style="margin-top:8px;">${listHtml}</div>
       </div>
       <div class="stu-detail-col" id="studentDetailArea">${detailHtml}</div>
     </div>
   `;
+  if(hadFocus){ const el = document.getElementById('stuSearch'); if(el){ el.focus(); const n = el.value.length; try{ el.setSelectionRange(n,n); }catch(e){} } }
 }
 
-function selectStudent(id){ STATE.selectedStudentId=id; renderStudentsScreen(); }
+function selectStudent(id){ STATE.selectedStudentId=id; STATE.recTagFilter=''; renderStudentsScreen(); }
+function setRecTagFilter(t){ STATE.recTagFilter = (STATE.recTagFilter===t) ? '' : t; renderStudentsScreen(); }
 
 function renderStudentDetail(id){
   const s = STATE.students[id];
-  const records = Object.entries(STATE.studentRecords).map(([rid,r])=>({...r,rid})).filter(r=>r.studentId===id).sort((a,b)=>b.date.localeCompare(a.date));
+  const all = Object.entries(STATE.studentRecords).map(([rid,r])=>({...r,rid})).filter(r=>r.studentId===id).sort((a,b)=>b.date.localeCompare(a.date));
   const counts = {}; TAG_LIST.forEach(t=>counts[t]=0);
-  records.forEach(r=>{ if(counts[r.tag]!==undefined) counts[r.tag]++; });
+  all.forEach(r=>{ if(counts[r.tag]!==undefined) counts[r.tag]++; });
+  const records = STATE.recTagFilter ? all.filter(r=>r.tag===STATE.recTagFilter) : all;
 
   let recHtml = records.map(r=>`<div class="rec-item">
     <div class="rdate">${fmtShort(r.date)}</div>
     <div class="tag-badge ${r.tag}">${r.tag}</div>
-    <div style="flex:1;font-size:13px;">${r.note}</div>
+    <div style="flex:1;font-size:13px;">${escHtml(r.note)}</div>
     <button class="iconbtn" onclick="deleteStudentRecord('${r.rid}')">✕</button>
   </div>`).join('') || `<div class="empty-hint">기록이 없어요.</div>`;
 
   return `
     <div style="margin-top:16px;">
       <div class="row-flex">
-        <div><div style="font-size:17px;font-weight:700;">${s.name}</div><div style="font-size:12px;color:#6B7280;margin-top:2px;">${s.class} · ${s.number}번</div></div>
-        <button class="btn ghost" onclick="exportStudentCSV('${id}')">기록 내보내기</button>
+        <div><div style="font-size:17px;font-weight:700;">${escHtml(s.name)}</div><div style="font-size:12px;color:#6B7280;margin-top:2px;">${escHtml(s.class)} · ${s.number}번</div></div>
+        <button class="btn ghost" style="flex:none;padding:8px 12px;" onclick="exportStudentCSV('${id}')">기록 내보내기</button>
       </div>
-      <div class="stat-tiles" style="margin-top:12px;">
-        ${TAG_LIST.map(t=>`<div class="stat-tile"><div class="stn">${t}</div><div class="stv">${counts[t]}회</div></div>`).join('')}
+      <div style="display:flex;gap:14px;margin-top:2px;">
+        <button class="link-btn" onclick="openStudentEditModal('${id}')">학생 정보 수정</button>
+        <button class="link-btn" style="color:#DC2626;" onclick="deleteStudent('${id}')">학생 삭제</button>
       </div>
+      <div class="stat-tiles" style="margin-top:8px;">
+        ${TAG_LIST.map(t=>`<div class="stat-tile" style="cursor:pointer;${STATE.recTagFilter===t?'border-color:var(--blue);background:var(--blue-lighter);':''}" onclick="setRecTagFilter('${t}')"><div class="stn">${t}</div><div class="stv">${counts[t]}회</div></div>`).join('')}
+      </div>
+      ${renderScoreSection(id)}
       <div class="settings-section" style="margin-top:12px;">
-        <div class="sst">전체 기록</div>
+        <div class="sst">${STATE.recTagFilter?`'${STATE.recTagFilter}' 기록`:'전체 기록'} <span style="font-size:11px;color:var(--gray-faint);font-weight:400;">${STATE.recTagFilter?'(같은 칸을 다시 누르면 전체 보기)':'(위 칸을 누르면 구분별로 볼 수 있어요)'}</span></div>
         ${recHtml}
       </div>
     </div>
   `;
+}
+
+/* ---------------------- 학생 추가·수정·삭제 ---------------------- */
+function openStudentEditModal(id){
+  const s = id ? STATE.students[id] : null;
+  const base = s || (STATE.selectedStudentId && STATE.students[STATE.selectedStudentId]) || {};
+  const q = v=>String(v==null?'':v).replace(/"/g,'&quot;');
+  document.getElementById('modalBody').innerHTML = `
+    <div class="modal-title"><span>${s?'학생 정보 수정':'학생 추가'}</span><button onclick="closeModal()">✕</button></div>
+    <div class="field"><label>반 (시간표와 같은 형식, 예: 2-1)</label><input id="se_class" value="${q(base.class)}"></div>
+    <div class="field"><label>번호</label><input id="se_number" type="number" inputmode="numeric" value="${s?q(s.number):''}"></div>
+    <div class="field"><label>이름</label><input id="se_name" value="${s?q(s.name):''}"></div>
+    <button class="btn primary full" onclick="saveStudentEdit('${id||''}')">저장</button>
+  `;
+  document.getElementById('modalOverlay').classList.add('open');
+}
+let _savingStudent = false;
+async function saveStudentEdit(id){
+  if(_savingStudent) return;
+  const cls = document.getElementById('se_class').value.trim();
+  const num = Number(document.getElementById('se_number').value)||0;
+  const name = document.getElementById('se_name').value.trim();
+  if(!cls || !name){ alert('반과 이름을 입력해주세요'); return; }
+  const dup = Object.entries(STATE.students).some(([sid,s])=>sid!==id && s.class===cls && Number(s.number)===num && s.name===name);
+  if(dup){ alert('같은 반·번호·이름의 학생이 이미 있어요'); return; }
+  _savingStudent = true;
+  try{
+    const t = STATE.termId;
+    const data = {class:cls, number:num, name};
+    if(id){
+      await dbSet(`students/${t}/${id}`, data);
+      STATE.students[id] = data;
+      // 이미 남긴 기록에 저장돼 있는 이름도 함께 바꿔요
+      const patch = {};
+      Object.entries(STATE.studentRecords).forEach(([rid,r])=>{
+        if(r.studentId===id && r.studentName!==name){ const u = {...r, studentName:name}; STATE.studentRecords[rid]=u; patch[rid]=u; }
+      });
+      if(Object.keys(patch).length) await silentPatch(`studentRecords/${t}`, patch);
+    } else {
+      const res = await dbPush(`students/${t}`, data);
+      STATE.students[res.name] = data;
+      STATE.selectedStudentId = res.name;
+    }
+    closeModal();
+    renderStudentsScreen();
+  }finally{
+    _savingStudent = false;
+  }
+}
+async function deleteStudent(id){
+  const s = STATE.students[id]; if(!s) return;
+  const t = STATE.termId;
+  const recs = Object.entries(STATE.studentRecords).filter(([rid,r])=>r.studentId===id);
+  const hasScore = !!STATE.scores[id];
+  if(!confirm(`${s.class} ${s.number}번 ${s.name} 학생을 삭제할까요?\n이 학생의 기록 ${recs.length}건${hasScore?'과 성적':''}도 함께 삭제되고, 되돌릴 수 없어요.`)) return;
+  await dbRemove(`students/${t}/${id}`);
+  if(recs.length){
+    const patch = {};
+    recs.forEach(([rid])=>{ patch[rid]=null; delete STATE.studentRecords[rid]; });
+    await silentPatch(`studentRecords/${t}`, patch);
+  }
+  if(hasScore){ await dbRemove(`scores/${t}/${id}`); delete STATE.scores[id]; }
+  delete STATE.students[id];
+  STATE.selectedStudentId = null;
+  renderStudentsScreen();
+}
+
+/* ---------------------- 정기고사 성적 (학생·시험당 점수 하나, 만점 100) ---------------------- */
+const EXAM_LIST = [{key:'mid', label:'중간고사'}, {key:'final', label:'기말고사'}];
+function renderScoreSection(studentId){
+  const sc = STATE.scores[studentId] || {};
+  const rows = EXAM_LIST.map(ex=>{
+    const v = sc[ex.key];
+    return `<div class="cal-row-item">
+      <div style="width:64px;font-weight:600;">${ex.label}</div>
+      <input id="sc_${ex.key}" type="number" inputmode="decimal" min="0" max="100" step="any" style="flex:1;min-width:0;padding:8px 10px;border:1px solid var(--gray-border);border-radius:8px;font-size:13px;" placeholder="점수" value="${v===undefined?'':v}">
+      <span style="font-size:12px;color:var(--gray-text);">점</span>
+      <button class="btn secondary" style="flex:none;padding:8px 12px;" onclick="saveScore('${studentId}','${ex.key}')">저장</button>
+    </div>`;
+  }).join('');
+  let diff = '';
+  if(sc.mid!==undefined && sc.final!==undefined){
+    const d = Math.round((sc.final - sc.mid)*100)/100;
+    diff = `<div style="font-size:12px;color:var(--gray-text);margin-top:8px;">중간 → 기말 ${d>0?'+':''}${d}점</div>`;
+  }
+  return `<div class="settings-section" style="margin-top:12px;">
+    <div class="sst">정기고사 성적 <span style="font-size:11px;color:var(--gray-faint);font-weight:400;">(${STATE.termId} 학기)</span></div>
+    ${rows}${diff}
+    <div style="font-size:11px;color:var(--gray-faint);margin-top:6px;">칸을 비우고 저장하면 점수가 삭제돼요.</div>
+  </div>`;
+}
+async function saveScore(studentId, key){
+  const raw = document.getElementById('sc_'+key).value.trim();
+  const path = `scores/${STATE.termId}/${studentId}/${key}`;
+  const label = EXAM_LIST.find(e=>e.key===key).label;
+  const has = STATE.scores[studentId] && STATE.scores[studentId][key]!==undefined;
+  if(raw===''){
+    if(!has) return;
+    if(!confirm(`${label} 점수를 삭제할까요?`)) return;
+    await dbRemove(path);
+    delete STATE.scores[studentId][key];
+    renderStudentsScreen();
+    return;
+  }
+  const v = Number(raw);
+  if(!isFinite(v) || v<0 || v>100){ alert('0~100 사이의 점수를 입력해주세요'); return; }
+  await dbSet(path, v);
+  STATE.scores[studentId] = STATE.scores[studentId] || {};
+  STATE.scores[studentId][key] = v;
+  renderStudentsScreen();
 }
 
 function exportStudentCSV(id){
@@ -1953,6 +2481,8 @@ function exportStudentCSV(id){
   const records = Object.values(STATE.studentRecords).filter(r=>r.studentId===id).sort((a,b)=>a.date.localeCompare(b.date));
   let rows=[['날짜','구분','내용']];
   records.forEach(r=>rows.push([r.date,r.tag,r.note]));
+  const sc = STATE.scores[id] || {};
+  EXAM_LIST.forEach(ex=>{ if(sc[ex.key]!==undefined) rows.push(['',`정기고사 ${ex.label}`,`${sc[ex.key]}점`]); });
   downloadCSV(rows, `${s.name}_기록.csv`);
 }
 
@@ -1977,6 +2507,9 @@ function renderSettingsScreen(){
       <div class="sst">학기</div>
       <div class="field"><label>학기 (예: 2026-2)</label><input id="st_term" value="${STATE.termId}"></div>
       <div class="field"><label>이번 학기 목표 총 차시 수 (진도율 계산용, 선택)</label><input id="st_target" type="number" value="${STATE.targetSessions||''}"></div>
+      <div class="field"><label>학기 시작일 (진도가 늦어졌는지 계산용, 선택)</label><input id="st_start" type="date" value="${STATE.termStart||''}"></div>
+      <div class="field"><label>학기 종료일</label><input id="st_end" type="date" value="${STATE.termEnd||''}"></div>
+      <div class="field"><label>미기록 수업 확인 시작일 (선택 · 이 날짜 이전은 미기록 목록에서 빼요)</label><input id="st_since" type="date" value="${STATE.missingSince||''}"></div>
       <button class="btn primary" onclick="saveTermSettings()">학기 설정 저장</button>
       ${renderTermSwitcher()}
     </div>
@@ -2016,12 +2549,20 @@ function renderSettingsScreen(){
     </div>
 
     <div class="settings-section">
+      <div class="sst">데이터 백업·복원</div>
+      <div style="font-size:11.5px;color:#6B7280;margin-bottom:10px;">모든 학기의 진도·학생 기록·성적·일정·시간표를 파일 하나로 저장해요. 학기가 끝날 때나 큰 수정 전에 백업해두면 안심이에요.${localStorage.getItem('lastBackup')?`<br><b>마지막 백업: ${localStorage.getItem('lastBackup')}</b>`:''}</div>
+      <button class="btn secondary full" onclick="downloadBackup()">전체 데이터 백업 파일 저장</button>
+      <button class="btn ghost full" style="margin-top:8px;" onclick="document.getElementById('restoreFile').click()">백업 파일로 복원</button>
+      <input type="file" id="restoreFile" accept=".json" style="display:none;" onchange="handleRestoreFile(event)">
+    </div>
+
+    <div class="settings-section">
       <div class="sst">보안</div>
       <button class="btn danger-ghost full" onclick="resetPin()">잠금 번호 초기화</button>
       <button class="btn danger-ghost full" style="margin-top:8px;" onclick="logoutDevice()">이 기기 로그아웃</button>
     </div>
 
-    <div style="text-align:center;font-size:10.5px;color:var(--gray-faint);padding:4px 0 16px;">ⓒ 2026 김효경 │ 교사 업무 지원 도구 · v2026.09</div>
+    <div style="text-align:center;font-size:10.5px;color:var(--gray-faint);padding:4px 0 16px;">ⓒ 2026 김효경 │ 교사 업무 지원 도구 · v2026.11</div>
   `;
 }
 
@@ -2057,8 +2598,12 @@ async function editTimetableCell(day,period){
 async function saveTermSettings(){
   const newTerm = document.getElementById('st_term').value.trim();
   const target = Number(document.getElementById('st_target').value)||0;
+  const startDate = document.getElementById('st_start').value || '';
+  const endDate = document.getElementById('st_end').value || '';
+  const since = document.getElementById('st_since').value || '';
+  if(startDate && endDate && endDate < startDate){ alert('학기 종료일은 시작일보다 빠를 수 없어요'); return; }
   await dbSet('config/currentTerm', newTerm);
-  await dbSet(`config/terms/${newTerm}/targetSessions`, target);
+  await dbSet(`config/terms/${newTerm}`, {targetSessions:target, startDate, endDate, missingSince:since});
   await loadAllData();
   renderSettingsScreen(); renderCalendar();
   toast('학기 설정이 저장됐어요','ok');
@@ -2256,15 +2801,73 @@ async function applyRoster(){
   const nmi = Number(document.getElementById('rc_name').value);
   const rows = ROSTER_RAW_ROWS.slice(1);
   const updates = {};
+  // 이미 등록된 학생(반·번호·이름이 모두 같음)은 건너뛰어요. 같은 명단을 다시 올려도 중복되지 않고, 기존 학생 기록도 그대로 유지돼요.
+  const keyOf = (c,n,nm)=>`${String(c||'').trim()}|${Number(n)||0}|${String(nm||'').trim()}`;
+  const seen = new Set(Object.values(STATE.students).map(s=>keyOf(s.class,s.number,s.name)));
+  let skipped = 0;
   rows.forEach(r=>{
     if(!r[nmi]) return;
+    const key = keyOf(r[ci], r[ni], r[nmi]);
+    if(seen.has(key)){ skipped++; return; }
+    seen.add(key);
     const id = 's_'+Date.now()+'_'+Math.random().toString(36).slice(2,7);
-    updates[id] = {class:r[ci]||'', number:Number(r[ni])||0, name:r[nmi]};
+    updates[id] = {class:String(r[ci]||'').trim(), number:Number(r[ni])||0, name:String(r[nmi]).trim()};
   });
   await dbSet(`students/${STATE.termId}`, {...STATE.students, ...updates});
   STATE.students = {...STATE.students, ...updates};
-  document.getElementById('rosterMatchArea').innerHTML = `<div class="empty-hint">${Object.keys(updates).length}명이 등록됐어요.</div>`;
+  document.getElementById('rosterMatchArea').innerHTML = `<div class="empty-hint">${Object.keys(updates).length}명이 새로 등록됐어요.${skipped?` (이미 있는 ${skipped}명은 건너뛰었어요)`:''}</div>`;
   renderSettingsScreen();
+}
+
+/* ---------------------- 전체 백업·복원 ---------------------- */
+const BACKUP_KEYS = ['config','timetable','academicCalendar','periodOverrides','dayOverrides','students','progress','studentRecords','personalEvents','scores'];
+async function downloadBackup(){
+  toast('백업 파일을 만드는 중이에요...','ok');
+  const out = {_meta:{app:'class-calendar', createdAt:new Date().toISOString()}};
+  for(const k of BACKUP_KEYS){
+    try{
+      const r = await fetch(dbPath(k));
+      if(!r.ok) throw new Error(r.status);
+      out[k] = await r.json();
+    }catch(e){
+      toast(`백업 실패 (${k}) · 인터넷 연결을 확인하고 다시 시도해주세요`,'error');
+      return;
+    }
+  }
+  const blob = new Blob([JSON.stringify(out)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = `수업기록_백업_${todayKey()}.json`;
+  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+  localStorage.setItem('lastBackup', todayKey());
+  toast('백업 파일을 저장했어요','ok');
+  renderSettingsScreen();
+}
+function handleRestoreFile(event){
+  const file = event.target.files[0];
+  event.target.value = '';
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = async function(e){
+    let data;
+    try{ data = JSON.parse(e.target.result); }catch(err){ alert('백업 파일을 읽을 수 없어요. 이 앱에서 저장한 .json 파일인지 확인해주세요.'); return; }
+    if(!data || !data._meta || data._meta.app!=='class-calendar'){ alert('이 앱에서 만든 백업 파일이 아니에요.'); return; }
+    const keys = BACKUP_KEYS.filter(k=>data[k]!==undefined && data[k]!==null);
+    const when = (data._meta.createdAt||'').slice(0,10);
+    if(!confirm(`${when} 백업으로 복원할까요?\n\n지금 저장된 ${keys.length}개 항목(시간표·진도·학생 기록 등)이 백업 시점의 내용으로 덮어써져요. 그 이후에 입력한 내용은 사라지고 되돌릴 수 없어요.\n\n먼저 "전체 데이터 백업"으로 현재 상태를 저장해두셨나요?`)) return;
+    for(const k of keys){
+      try{
+        const r = await fetch(dbPath(k), {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data[k])});
+        if(!r.ok) throw new Error(r.status);
+      }catch(err){
+        alert(`복원 중 문제가 생겼어요 (${k}). 인터넷 연결을 확인하고 같은 파일로 다시 시도해주세요.`);
+        return;
+      }
+    }
+    await loadAllData();
+    renderSettingsScreen(); renderCalendar(); renderQuickBanner();
+    toast('복원이 끝났어요','ok');
+  };
+  reader.readAsText(file, 'utf-8');
 }
 
 /* ---------------------- 시작 ---------------------- */
