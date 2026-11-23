@@ -392,6 +392,8 @@ const DAY_LABELS_5 = ['mon','tue','wed','thu','fri'];
 const DAY_LABELS_5_KR = ['월','화','수','목','금'];
 const DEFAULT_PERIOD_TIMES = {1:"09:00-09:50",2:"10:00-10:50",3:"11:00-11:50",4:"12:00-12:50",5:"14:00-14:50",6:"15:00-15:50",7:"16:00-16:50"};
 const TAG_LIST = ['발표','태도','특이사항'];
+// 학생 기록 입력 때 버튼 한 번으로 내용에 넣을 수 있는 자주 쓰는 문구 (구분별). 문구를 바꾸려면 여기만 고치면 돼요.
+const QUICK_NOTES = {'발표':[], '태도':['교과서 미지참','졸음','잡담'], '특이사항':[]};
 
 let STATE = {
   termId: null,
@@ -2033,12 +2035,31 @@ function openStudentRecordModal(cls){
     <div class="field"><label>학생</label>
       <select id="sr_student"></select></div>
     <div class="field"><label>구분</label>
-      <select id="sr_tag">${TAG_LIST.map(t=>`<option>${t}</option>`).join('')}</select></div>
-    <div class="field"><label>내용</label><textarea id="sr_note" placeholder="예: 문제 풀이 발표함, 논리 전개 정확함"></textarea></div>
+      <select id="sr_tag" onchange="renderQuickNotes()">${TAG_LIST.map(t=>`<option>${t}</option>`).join('')}</select></div>
+    <div class="field"><label>내용</label>
+      <div id="sr_quick" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px;"></div>
+      <textarea id="sr_note" placeholder="예: 문제 풀이 발표함, 논리 전개 정확함"></textarea></div>
     <button class="btn primary full" onclick="saveStudentRecord('${cls}')">저장</button>
   `;
   refreshSrStudents();
+  renderQuickNotes();
   document.getElementById('modalOverlay').classList.add('open');
+}
+function renderQuickNotes(){
+  const el = document.getElementById('sr_quick');
+  if(!el) return;
+  const tag = document.getElementById('sr_tag').value;
+  const list = QUICK_NOTES[tag] || [];
+  el.innerHTML = list.map((t,i)=>`<button type="button" class="chip" style="cursor:pointer;font-size:12.5px;padding:6px 11px;" onclick="addQuickNote(${i})">${escHtml(t)}</button>`).join('');
+}
+function addQuickNote(i){
+  const tag = document.getElementById('sr_tag').value;
+  const phrase = (QUICK_NOTES[tag]||[])[i];
+  if(!phrase) return;
+  const ta = document.getElementById('sr_note');
+  const cur = ta.value.trim();
+  if(!cur) ta.value = phrase;
+  else if(!cur.includes(phrase)) ta.value = cur + ', ' + phrase;
 }
 let _savingStudentRec = false;
 async function saveStudentRecord(cls){
@@ -2255,35 +2276,57 @@ function exportProgressCSV(){
 /* ======================================================================
    학생기록 화면
    ====================================================================== */
+// 반 학생별 기록 횟수 (학기 전체). 태도는 자주 쓰는 문구별로도 나눠서 세요.
+function computeClassStats(cls){
+  const phrases = QUICK_NOTES['태도'] || [];
+  const members = Object.entries(STATE.students).filter(([id,s])=>s.class===cls).sort((a,b)=>(a[1].number||0)-(b[1].number||0));
+  const recs = Object.values(STATE.studentRecords);
+  return members.map(([id,s])=>{
+    const c = {}; TAG_LIST.forEach(t=>c[t]=0);
+    const att = {}; phrases.forEach(p=>att[p]=0); att['기타']=0;
+    recs.forEach(r=>{
+      if(r.studentId!==id || c[r.tag]===undefined) return;
+      c[r.tag]++;
+      if(r.tag==='태도'){
+        const hit = phrases.filter(p=>(r.note||'').includes(p));
+        if(hit.length) hit.forEach(p=>att[p]++); else att['기타']++;
+      }
+    });
+    return {id, s, c, att};
+  });
+}
+function exportClassStatsCSV(){
+  const cls = STATE.statsClass;
+  const phrases = QUICK_NOTES['태도'] || [];
+  const rows = [['반','번호','이름','발표','태도',...phrases,'태도 기타','특이사항','중간고사','기말고사']];
+  computeClassStats(cls).forEach(r=>{
+    const sc = STATE.scores[r.id] || {};
+    rows.push([cls, r.s.number, r.s.name, r.c['발표'], r.c['태도'], ...phrases.map(p=>r.att[p]), r.att['기타'], r.c['특이사항'], sc.mid===undefined?'':sc.mid, sc.final===undefined?'':sc.final]);
+  });
+  downloadCSV(rows, `${cls}_학생기록통계_${STATE.termId}.csv`);
+}
 function renderStatsPanel(){
-  const roster = Object.entries(STATE.students);
-  const classes = [...new Set(roster.map(([id,s])=>s.class))].sort();
+  const classes = [...new Set(Object.values(STATE.students).map(s=>s.class))].sort();
   if(!classes.length) return '';
   if(!classes.includes(STATE.statsClass)) STATE.statsClass = classes[0];
-  let from = '';
-  if(STATE.statsRange!=='all'){ const d = parseDateKey(todayKey()); d.setDate(d.getDate()-Number(STATE.statsRange)); from = dateKey(d); }
-  const recs = Object.values(STATE.studentRecords).filter(r=>!from || r.date>=from);
-  const members = roster.filter(([id,s])=>s.class===STATE.statsClass).sort((a,b)=>(a[1].number||0)-(b[1].number||0));
-  const rows = members.map(([id,s])=>{
-    const c = {}; TAG_LIST.forEach(t=>c[t]=0);
-    recs.forEach(r=>{ if(r.studentId===id && c[r.tag]!==undefined) c[r.tag]++; });
-    return {id, s, c};
-  });
+  const rows = computeClassStats(STATE.statsClass);
   const noPres = rows.filter(r=>r.c['발표']===0);
-  const body = rows.map(r=>`<div class="cal-row-item" style="cursor:pointer;" onclick="selectStudent('${r.id}')">
-      <div style="width:70px;">${r.s.number}번 ${escHtml(r.s.name)}</div>
-      ${TAG_LIST.map(t=>`<div style="flex:1;text-align:center;${t==='발표'&&r.c[t]===0?'color:#C2410C;font-weight:700;':''}">${r.c[t]}</div>`).join('')}
-    </div>`).join('');
+  const body = rows.map(r=>{
+    const detail = Object.entries(r.att).filter(([k,v])=>v>0).map(([k,v])=>`${escHtml(k)} ${v}`).join(' · ');
+    return `<div class="cal-row-item" style="cursor:pointer;align-items:flex-start;" onclick="selectStudent('${r.id}')">
+      <div style="width:76px;">${r.s.number}번 ${escHtml(r.s.name)}</div>
+      <div style="flex:1;text-align:center;${r.c['발표']===0?'color:#C2410C;font-weight:700;':''}">${r.c['발표']}</div>
+      <div style="flex:2;text-align:center;"><span style="${r.c['태도']>0?'font-weight:700;':''}">${r.c['태도']}</span>${detail?`<div style="font-size:10.5px;color:#6B7280;margin-top:1px;">${detail}</div>`:''}</div>
+      <div style="flex:1;text-align:center;">${r.c['특이사항']}</div>
+    </div>`;
+  }).join('');
   return `<div class="settings-section">
-    <div class="sst">기록 통계</div>
+    <div class="sst">기록 통계 <span style="font-size:11px;color:var(--gray-faint);font-weight:400;">(${STATE.termId} 학기 전체)</span></div>
     <div style="display:flex;gap:8px;margin-bottom:8px;">
       <select class="term-select" style="flex:1;" onchange="STATE.statsClass=this.value;renderStudentsScreen();">${classes.map(c=>`<option value="${escHtml(c)}" ${c===STATE.statsClass?'selected':''}>${escHtml(c)}</option>`).join('')}</select>
-      <select class="term-select" style="flex:1;" onchange="STATE.statsRange=this.value;renderStudentsScreen();">
-        <option value="all" ${STATE.statsRange==='all'?'selected':''}>전체 기간</option>
-        <option value="30" ${STATE.statsRange==='30'?'selected':''}>최근 30일</option>
-        <option value="7" ${STATE.statsRange==='7'?'selected':''}>최근 7일</option></select>
+      <button class="btn secondary" style="flex:none;padding:8px 12px;" onclick="exportClassStatsCSV()">표 저장(엑셀)</button>
     </div>
-    <div class="cal-row-item" style="color:var(--gray-faint);font-size:11px;font-weight:700;"><div style="width:70px;">학생</div>${TAG_LIST.map(t=>`<div style="flex:1;text-align:center;">${t}</div>`).join('')}</div>
+    <div class="cal-row-item" style="color:var(--gray-faint);font-size:11px;font-weight:700;"><div style="width:76px;">학생</div><div style="flex:1;text-align:center;">발표</div><div style="flex:2;text-align:center;">태도</div><div style="flex:1;text-align:center;">특이사항</div></div>
     ${body}
     <div style="font-size:12px;margin-top:8px;color:${noPres.length?'#C2410C':'#16A34A'};">${noPres.length?`발표 기록이 없는 학생 ${noPres.length}명: ${noPres.map(r=>escHtml(r.s.name)).join(', ')}`:'모든 학생에게 발표 기록이 있어요 ✓'}</div>
   </div>`;
