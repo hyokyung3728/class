@@ -37,9 +37,14 @@
     --ink:#1F2937; --white:#FFFFFF;
   }
   *{box-sizing:border-box;}
-  html,body{margin:0;padding:0;height:100%;height:100dvh;height:calc(var(--app-vh, 1vh) * 100);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:var(--ink);background:var(--gray-bg);}
+  html,body{margin:0;padding:0;height:100%;overscroll-behavior:none;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:var(--ink);background:var(--gray-bg);}
   button,input,select,textarea{font-family:inherit;}
   button{cursor:pointer;}
+  html,body{touch-action:manipulation;}
+  /* 아이폰은 글자 크기가 16px보다 작은 입력창을 누르면 화면을 자동으로 확대해요. 폰 화면에서는 입력창 글자를 16px로 맞춰 확대를 막아요. */
+  @media (max-width:700px){
+    input,select,textarea,.richtext-input,.search-box{font-size:16px !important;}
+  }
   a{color:inherit;}
 
   /* ---------- 잠금 화면 ---------- */
@@ -51,7 +56,7 @@
   .pin-box .link-btn-sm{width:auto;background:none;color:var(--blue);border:none;font-size:12px;font-weight:600;padding:8px 4px 0;margin-top:6px;}
 
   /* ---------- 전체 앱 셸 ---------- */
-  #app{display:none;flex-direction:column;height:100%;height:100dvh;height:calc(var(--app-vh, 1vh) * 100);max-width:520px;width:100%;margin:0 auto;background:var(--gray-bg);position:relative;padding-top:calc(env(safe-area-inset-top) + 14px);box-sizing:border-box;}
+  #app{display:none;flex-direction:column;position:fixed;top:0;bottom:0;left:0;right:0;max-width:520px;margin:0 auto;background:var(--gray-bg);padding-top:calc(env(safe-area-inset-top) + 14px);box-sizing:border-box;}
   .screen{display:none;flex-direction:column;height:100%;min-height:0;}
   .screen.active{display:flex;}
   .scroll-area{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;}
@@ -86,7 +91,7 @@
   .dot.blue{background:var(--blue);} .dot.orange{background:var(--orange);} .dot.gray{background:var(--gray-faint);} .dot.purple{background:#7C3AED;} .dot.green{background:#16A34A;}
 
   /* ---------- 하단 탭바 ---------- */
-  #tabbar{flex-shrink:0;display:flex;align-items:center;border-top:1px solid var(--gray-border);background:#fff;padding:6px 8px calc(8px + env(safe-area-inset-bottom));}
+  #tabbar{flex-shrink:0;display:flex;align-items:center;border-top:1px solid var(--gray-border);background:#fff;padding:6px 8px calc(4px + env(safe-area-inset-bottom) * 0.4);}
   #tabbar.hidden{display:none;}
   .tabbtn{border:none;background:none;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:11px;padding:6px 0;flex:1;color:var(--gray-faint);}
   .tabbtn.active{color:var(--blue);}
@@ -181,7 +186,7 @@
   #imgLightbox.open{display:flex;}
   #imgLightbox img{max-width:92vw;max-height:88vh;border-radius:8px;}
   #imgLightbox .iconbtn{position:absolute;top:calc(env(safe-area-inset-top) + 14px);right:16px;background:rgba(255,255,255,.15);color:#fff;}
-  #modalBody{background:#fff;width:100%;max-width:520px;border-radius:16px 16px 0 0;padding:20px 20px calc(20px + env(safe-area-inset-bottom));max-height:88vh;overflow-y:auto;}
+  #modalBody{background:#fff;width:100%;max-width:520px;border-radius:16px 16px 0 0;padding:20px 20px calc(20px + env(safe-area-inset-bottom));max-height:88vh;max-height:88dvh;overflow-y:auto;}
   .modal-title{font-size:15px;font-weight:700;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;}
   .modal-title button{border:none;background:none;font-size:18px;color:var(--gray-faint);}
 
@@ -358,9 +363,8 @@ function forceViewportRecalc(){
     }, 60);
   });
 }
-forceViewportRecalc();
-setTimeout(forceViewportRecalc, 350);
-window.addEventListener('pageshow', forceViewportRecalc);
+/* 화면 높이를 자바스크립트로 계산해 맞추던 방식 대신, 브라우저가 직접 화면 전체에 맞추는 고정 배치(#app: position:fixed)를 써요.
+   그래서 위 보정 함수는 더 이상 실행하지 않아요. */
 
 /* =========================================================================
    데이터 구조 (Firebase Realtime Database)
@@ -498,19 +502,27 @@ async function signInWithPassword(email, password){
 async function refreshIdToken(){
   const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY);
   if(!refreshToken) return false;
+  let res;
   try{
-    const res = await fetch(`https://securetoken.googleapis.com/v1/token?key=${FIREBASE_API_KEY}`, {
+    res = await fetch(`https://securetoken.googleapis.com/v1/token?key=${FIREBASE_API_KEY}`, {
       method:'POST',
       headers:{'Content-Type':'application/x-www-form-urlencoded'},
       body: `grant_type=refresh_token&refresh_token=${encodeURIComponent(refreshToken)}`
     });
-    if(!res.ok) throw new Error(res.status);
+  }catch(e){
+    return false; // 인터넷이 잠깐 끊긴 경우엔 로그인 정보를 지우지 않아요
+  }
+  if(!res.ok){
+    // 계정이 바뀌었거나 토큰이 무효일 때만 로그인 정보를 지워요
+    if(res.status===400 || res.status===401 || res.status===403) localStorage.removeItem(REFRESH_TOKEN_KEY);
+    return false;
+  }
+  try{
     const data = await res.json();
     AUTH_TOKEN = data.id_token;
     if(data.refresh_token) localStorage.setItem(REFRESH_TOKEN_KEY, data.refresh_token);
     return true;
   }catch(e){
-    localStorage.removeItem(REFRESH_TOKEN_KEY);
     return false;
   }
 }
@@ -557,13 +569,22 @@ function dbPath(p){
   const authParam = AUTH_TOKEN ? `?auth=${AUTH_TOKEN}` : '';
   return `${FIREBASE_DB_URL}/${p}.json${authParam}`;
 }
+// 로그인 토큰은 1시간이 지나면 만료돼요. 앱을 백그라운드에 오래 두면 자동 갱신이 멈춰 있어서,
+// 요청이 거절(401)되면 토큰을 새로 받아서 한 번 더 시도해요.
+async function authFetch(p, opts){
+  let res = await fetch(dbPath(p), opts);
+  if(res.status===401 && localStorage.getItem(REFRESH_TOKEN_KEY)){
+    if(await refreshIdToken()) res = await fetch(dbPath(p), opts);
+  }
+  return res;
+}
 async function isPermissionDenied(res){
   try{ const text = await res.text(); return res.status===401 || /permission denied/i.test(text); }
   catch(e){ return false; }
 }
 async function dbGet(p){
   let res;
-  try{ res = await fetch(dbPath(p)); }
+  try{ res = await authFetch(p); }
   catch(e){ toast('불러오기 실패 · 인터넷 연결을 확인해주세요','error'); return null; }
   if(!res.ok){
     const denied = await isPermissionDenied(res);
@@ -574,7 +595,7 @@ async function dbGet(p){
 }
 async function dbSet(p,data){
   let res;
-  try{ res = await fetch(dbPath(p),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}); }
+  try{ res = await authFetch(p,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}); }
   catch(e){ toast('저장 실패 · 다시 시도해주세요','error'); throw e; }
   if(!res.ok){
     const denied = await isPermissionDenied(res);
@@ -586,7 +607,19 @@ async function dbSet(p,data){
 }
 async function dbPush(p,data){
   let res;
-  try{ res = await fetch(dbPath(p),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}); }
+  try{ res = await authFetch(p,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}); }
+  catch(e){ toast('저장 실패 · 다시 시도해주세요','error'); throw e; }
+  if(!res.ok){
+    const denied = await isPermissionDenied(res);
+    toast(denied ? '접근 권한이 없어요' : '저장 실패 · 다시 시도해주세요','error');
+    throw new Error(res.status);
+  }
+  toast('저장됨','ok');
+  return await res.json();
+}
+async function dbPatch(p,data){
+  let res;
+  try{ res = await authFetch(p,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}); }
   catch(e){ toast('저장 실패 · 다시 시도해주세요','error'); throw e; }
   if(!res.ok){
     const denied = await isPermissionDenied(res);
@@ -598,7 +631,7 @@ async function dbPush(p,data){
 }
 async function dbRemove(p){
   let res;
-  try{ res = await fetch(dbPath(p),{method:'DELETE'}); }
+  try{ res = await authFetch(p,{method:'DELETE'}); }
   catch(e){ toast('삭제 실패 · 다시 시도해주세요','error'); throw e; }
   if(!res.ok){
     const denied = await isPermissionDenied(res);
@@ -667,7 +700,16 @@ function logoutDevice(){
     location.reload();
   }
 }
+function settleViewport(){
+  try{ if(document.activeElement && document.activeElement.blur) document.activeElement.blur(); }catch(e){}
+  window.scrollTo(0,0);
+  if(document.body) document.body.scrollTop = 0;
+  if(document.documentElement) document.documentElement.scrollTop = 0;
+}
 function unlockApp(){
+  settleViewport();
+  // 키보드가 내려가는 동안 화면이 어긋나 있을 수 있어서, 몇 번에 걸쳐 제자리로 되돌려요
+  [100,300,600,1000].forEach(ms=>setTimeout(settleViewport, ms));
   document.getElementById('pinGate').style.display='none';
   document.getElementById('app').style.display='flex';
   bootApp();
@@ -704,15 +746,15 @@ async function loadAllData(){
 // 화면에 "저장됨/삭제됨" 알림이 뜨지 않는, 조용한 버전의 저장/삭제예요.
 // 사용자가 직접 누른 동작이 아닌, 자동 배경 정리 작업에서만 써요.
 async function silentSet(p, data){
-  try{ await fetch(dbPath(p),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}); }
+  try{ await authFetch(p,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}); }
   catch(e){ /* 배경 정리라 실패해도 조용히 넘어가요 */ }
 }
 async function silentRemove(p){
-  try{ await fetch(dbPath(p),{method:'DELETE'}); }
+  try{ await authFetch(p,{method:'DELETE'}); }
   catch(e){ /* 배경 정리라 실패해도 조용히 넘어가요 */ }
 }
 async function silentPatch(p, data){
-  try{ await fetch(dbPath(p),{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}); }
+  try{ await authFetch(p,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}); }
   catch(e){ /* 배경 정리라 실패해도 조용히 넘어가요 */ }
 }
 
@@ -802,6 +844,8 @@ async function bootApp(){
   setInterval(renderQuickBanner, 60000);
   // 로그인 토큰은 1시간 정도만 유효해서, 만료되기 전에 미리 조용히 갱신해둬요.
   setInterval(refreshIdToken, 50*60*1000);
+  // 앱을 잠깐 닫았다가 다시 열 때(백그라운드에서 돌아올 때)도 토큰을 새로 받아둬요
+  document.addEventListener('visibilitychange', ()=>{ if(!document.hidden && localStorage.getItem(REFRESH_TOKEN_KEY)) refreshIdToken(); });
 }
 
 /* ---------------------- 화면 전환 ---------------------- */
@@ -1368,6 +1412,7 @@ async function clearOverride(period){
 }
 
 async function deletePersonalEvent(startDate, id){
+  if(!confirm('이 개인 일정을 삭제할까요?')) return;
   const dk = startDate || STATE.selectedDateKey;
   await dbRemove(`personalEvents/${STATE.termId}/${dk}/${id}`);
   if(STATE.personalEvents[dk]) delete STATE.personalEvents[dk][id];
@@ -1428,7 +1473,7 @@ async function saveProgress(cls, period, seq, startPoint, existingId){
     // 저장 직전에 서버의 최신 기록을 다시 읽어서, 같은 반·날짜·교시 기록이 이미 있는지 확인해요
     let fresh;
     try{
-      const r = await fetch(dbPath(`progress/${STATE.termId}/${cls}`));
+      const r = await authFetch(`progress/${STATE.termId}/${cls}`);
       if(!r.ok) throw new Error(r.status);
       fresh = (await r.json()) || {};
     }catch(e){
@@ -2332,9 +2377,7 @@ function renderStatsPanel(){
   </div>`;
 }
 
-function renderStudentsScreen(){
-  const searchEl = document.getElementById('stuSearch');
-  const hadFocus = searchEl && document.activeElement===searchEl;
+function buildStudentListHtml(){
   const q = STATE.studentSearch.trim();
   const classGroups = {};
   Object.entries(STATE.students).forEach(([id,s])=>{
@@ -2342,7 +2385,6 @@ function renderStudentsScreen(){
     classGroups[s.class]=classGroups[s.class]||[];
     classGroups[s.class].push({id,...s});
   });
-
   let listHtml='';
   Object.keys(classGroups).sort().forEach(cls=>{
     listHtml += `<div style="font-size:11px;color:#9CA3AF;font-weight:700;padding:8px 2px 4px;">${escHtml(cls)}</div>`;
@@ -2350,8 +2392,24 @@ function renderStudentsScreen(){
       listHtml += `<div class="stu-row ${STATE.selectedStudentId===s.id?'sel':''}" onclick="selectStudent('${s.id}')">${s.number}번 ${escHtml(s.name)}</div>`;
     });
   });
-  if(!Object.keys(classGroups).length) listHtml = `<div class="empty-hint">등록된 학생이 없어요. 설정 탭에서 명단을 업로드해주세요.</div>`;
+  if(!Object.keys(classGroups).length) listHtml = `<div class="empty-hint">${q?'검색 결과가 없어요.':'등록된 학생이 없어요. 설정 탭에서 명단을 업로드해주세요.'}</div>`;
+  return listHtml;
+}
+// 검색창 자체는 다시 그리지 않고 목록만 바꿔요. (입력창을 다시 그리면 한글 조합이 끊겨서 "ㄱㅣㅁ"처럼 입력돼요)
+function onStudentSearchInput(el, e){
+  STATE.studentSearch = el.value;
+  if(e && e.isComposing) return; // 글자를 조합하는 중에는 기다렸다가, 한 글자가 완성되면 목록을 갱신해요
+  const area = document.getElementById('stuListArea');
+  if(area) area.innerHTML = buildStudentListHtml();
+}
+function onStudentSearchCompositionEnd(el){
+  STATE.studentSearch = el.value;
+  const area = document.getElementById('stuListArea');
+  if(area) area.innerHTML = buildStudentListHtml();
+}
 
+function renderStudentsScreen(){
+  const q = STATE.studentSearch.trim();
   let detailHtml = `<div class="empty-hint">학생을 선택해주세요.</div>`;
   if(STATE.selectedStudentId && STATE.students[STATE.selectedStudentId]){
     detailHtml = renderStudentDetail(STATE.selectedStudentId);
@@ -2366,13 +2424,12 @@ function renderStudentsScreen(){
     ${STATE.statsOpen ? renderStatsPanel() : ''}
     <div class="stu-layout">
       <div class="stu-list-col">
-        <input id="stuSearch" class="search-box" placeholder="학생 이름 검색" value="${escHtml(q).replace(/"/g,'&quot;')}" oninput="STATE.studentSearch=this.value;renderStudentsScreen();">
-        <div style="margin-top:8px;">${listHtml}</div>
+        <input id="stuSearch" class="search-box" placeholder="학생 이름 검색" value="${escHtml(STATE.studentSearch).replace(/"/g,'&quot;')}" oninput="onStudentSearchInput(this,event)" oncompositionend="onStudentSearchCompositionEnd(this)">
+        <div id="stuListArea" style="margin-top:8px;">${buildStudentListHtml()}</div>
       </div>
       <div class="stu-detail-col" id="studentDetailArea">${detailHtml}</div>
     </div>
   `;
-  if(hadFocus){ const el = document.getElementById('stuSearch'); if(el){ el.focus(); const n = el.value.length; try{ el.setSelectionRange(n,n); }catch(e){} } }
 }
 
 function selectStudent(id){ STATE.selectedStudentId=id; STATE.recTagFilter=''; renderStudentsScreen(); }
@@ -2749,6 +2806,7 @@ async function saveAcademic(id){
   closeModal(); renderSettingsScreen(); renderCalendar();
 }
 async function deleteAcademic(id){
+  if(!confirm('이 학사일정을 삭제할까요?')) return;
   await dbRemove(`academicCalendar/${STATE.termId}/${id}`);
   delete STATE.academicCalendar[id];
   renderSettingsScreen(); renderCalendar();
@@ -2861,7 +2919,8 @@ async function applyRoster(){
     const id = 's_'+Date.now()+'_'+Math.random().toString(36).slice(2,7);
     updates[id] = {class:String(r[ci]||'').trim(), number:Number(r[ni])||0, name:String(r[nmi]).trim()};
   });
-  await dbSet(`students/${STATE.termId}`, {...STATE.students, ...updates});
+  // 새 학생만 추가해요. (다른 기기에서 방금 바뀐 명단을 통째로 덮어쓰지 않도록 전체 저장 대신 추가 방식을 써요)
+  if(Object.keys(updates).length) await dbPatch(`students/${STATE.termId}`, updates);
   STATE.students = {...STATE.students, ...updates};
   document.getElementById('rosterMatchArea').innerHTML = `<div class="empty-hint">${Object.keys(updates).length}명이 새로 등록됐어요.${skipped?` (이미 있는 ${skipped}명은 건너뛰었어요)`:''}</div>`;
   renderSettingsScreen();
@@ -2874,7 +2933,7 @@ async function downloadBackup(){
   const out = {_meta:{app:'class-calendar', createdAt:new Date().toISOString()}};
   for(const k of BACKUP_KEYS){
     try{
-      const r = await fetch(dbPath(k));
+      const r = await authFetch(k);
       if(!r.ok) throw new Error(r.status);
       out[k] = await r.json();
     }catch(e){
@@ -2904,7 +2963,7 @@ function handleRestoreFile(event){
     if(!confirm(`${when} 백업으로 복원할까요?\n\n지금 저장된 ${keys.length}개 항목(시간표·진도·학생 기록 등)이 백업 시점의 내용으로 덮어써져요. 그 이후에 입력한 내용은 사라지고 되돌릴 수 없어요.\n\n먼저 "전체 데이터 백업"으로 현재 상태를 저장해두셨나요?`)) return;
     for(const k of keys){
       try{
-        const r = await fetch(dbPath(k), {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data[k])});
+        const r = await authFetch(k, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data[k])});
         if(!r.ok) throw new Error(r.status);
       }catch(err){
         alert(`복원 중 문제가 생겼어요 (${k}). 인터넷 연결을 확인하고 같은 파일로 다시 시도해주세요.`);
