@@ -37,7 +37,7 @@
     --ink:#1F2937; --white:#FFFFFF;
   }
   *{box-sizing:border-box;}
-  html,body{margin:0;padding:0;height:100%;overscroll-behavior:none;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:var(--ink);background:var(--gray-bg);}
+  html,body{margin:0;padding:0;height:100%;overscroll-behavior:none;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:var(--ink);background:#fff;}
   button,input,select,textarea{font-family:inherit;}
   button{cursor:pointer;}
   html,body{touch-action:manipulation;}
@@ -238,7 +238,7 @@
     <div style="font-size:11.5px;color:var(--gray-faint);margin-top:4px;">숫자 6자리를 입력해주세요.</div>
     <input id="pinInput" type="password" inputmode="numeric" maxlength="6" placeholder="••••••" onkeydown="if(event.key==='Enter') submitPin();">
     <button onclick="submitPin()">확인</button>
-    <div style="text-align:center;font-size:10px;color:var(--gray-faint);margin-top:16px;">ⓒ 2026 김효경 │ 교사 업무 지원 도구 · v2026.11.23g</div>
+    <div style="text-align:center;font-size:10px;color:var(--gray-faint);margin-top:16px;">ⓒ 2026 김효경 │ 교사 업무 지원 도구 · v2026.11.23h</div>
   </div>
 </div>
 
@@ -326,7 +326,6 @@
   <img id="imgLightboxImg" src="" alt="첨부 이미지">
 </div>
 
-<div id="viewDiag" style="position:fixed;top:calc(env(safe-area-inset-top) + 2px);left:0;right:0;text-align:center;font-size:10px;color:#dc2626;z-index:99999;pointer-events:none;"></div>
 <button id="toTopBtn" aria-label="맨 위로" onclick="scrollActiveToTop()" style="display:none;position:fixed;right:14px;bottom:calc(78px + env(safe-area-inset-bottom) * 0.2);z-index:120;width:42px;height:42px;border-radius:50%;border:1px solid var(--gray-border);background:#fff;color:var(--blue);font-size:18px;box-shadow:0 2px 8px rgba(0,0,0,.14);">▲</button>
 <div id="toastContainer"></div>
 
@@ -349,8 +348,6 @@ function setAppVH(){
   if(h) document.documentElement.style.setProperty('--app-h', h+'px');
 }
 setAppVH();
-function updViewDiag(){ const d=document.getElementById('viewDiag'); if(!d) return; const vv=window.visualViewport; d.textContent='진단 inner '+window.innerHeight+' · vv '+(vv?Math.round(vv.height):'-')+' · screen '+screen.height+' · client '+document.documentElement.clientHeight+' · app '+(document.getElementById('app')?document.getElementById('app').offsetHeight:'-')+' · tab '+(document.getElementById('tabbar')?Math.round(document.getElementById('tabbar').getBoundingClientRect().bottom):'-'); }
-setInterval(updViewDiag,1000);
 window.addEventListener('resize', setAppVH);
 window.addEventListener('orientationchange', ()=>{ setTimeout(setAppVH,150); setTimeout(setAppVH,500); });
 window.addEventListener('pageshow', setAppVH);
@@ -2731,7 +2728,7 @@ function renderSettingsScreen(){
       <button class="btn danger-ghost full" style="margin-top:8px;" onclick="logoutDevice()">이 기기 로그아웃</button>
     </div>
 
-    <div style="text-align:center;font-size:10.5px;color:var(--gray-faint);padding:4px 0 16px;">ⓒ 2026 김효경 │ 교사 업무 지원 도구 · v2026.11.23g</div>
+    <div style="text-align:center;font-size:10.5px;color:var(--gray-faint);padding:4px 0 16px;">ⓒ 2026 김효경 │ 교사 업무 지원 도구 · v2026.11.23h</div>
     
   `;
 }
