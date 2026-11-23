@@ -59,7 +59,7 @@
   .pin-box .link-btn-sm{width:auto;background:none;color:var(--blue);border:none;font-size:12px;font-weight:600;padding:8px 4px 0;margin-top:6px;}
 
   /* ---------- 전체 앱 셸 ---------- */
-  #app{display:none;flex-direction:column;position:fixed;top:0;left:0;right:0;height:100%;height:var(--app-h, 100%);max-width:520px;margin:0 auto;background:var(--gray-bg);padding-top:calc(env(safe-area-inset-top) + 14px);box-sizing:border-box;}
+  #app{display:none;flex-direction:column;position:fixed;top:0;left:0;right:0;height:100%;height:var(--app-h, 100%);height:100dvh;max-width:520px;margin:0 auto;background:var(--gray-bg);padding-top:calc(env(safe-area-inset-top) + 14px);box-sizing:border-box;}
   .screen{display:none;flex-direction:column;height:100%;min-height:0;}
   .screen.active{display:flex;}
   .scroll-area{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;}
@@ -238,7 +238,7 @@
     <div style="font-size:11.5px;color:var(--gray-faint);margin-top:4px;">숫자 6자리를 입력해주세요.</div>
     <input id="pinInput" type="password" inputmode="numeric" maxlength="6" placeholder="••••••" onkeydown="if(event.key==='Enter') submitPin();">
     <button onclick="submitPin()">확인</button>
-    <div style="text-align:center;font-size:10px;color:var(--gray-faint);margin-top:16px;">ⓒ 2026 김효경 │ 교사 업무 지원 도구 · v2026.11.23d</div>
+    <div style="text-align:center;font-size:10px;color:var(--gray-faint);margin-top:16px;">ⓒ 2026 김효경 │ 교사 업무 지원 도구 · v2026.11.23e</div>
   </div>
 </div>
 
@@ -342,13 +342,10 @@ function isStandaloneApp(){
    아이폰이 알려주는 높이를 믿지 않고 기기 화면 크기(screen)로 앱 높이를 직접 정해요. 세로 모드일 때만 그렇게 하고,
    브라우저 탭으로 열었거나 가로 모드면 기존처럼 현재 보이는 영역 높이를 써요. */
 function setAppVH(){
-  let h = (window.visualViewport && window.visualViewport.height) || window.innerHeight;
-  try{
-    if(isStandaloneApp() && window.matchMedia && window.matchMedia('(orientation: portrait)').matches && typeof screen!=='undefined' && screen.height){
-      h = Math.max(screen.width, screen.height);
-    }
-  }catch(e){}
-  document.documentElement.style.setProperty('--app-h', h+'px');
+  /* 기기 화면 크기로 추정하면 기종에 따라 탭바가 화면 밖으로 밀려나므로, 브라우저가 알려주는 높이만 사용해요.
+     (실제 높이 계산은 CSS의 100dvh가 맡고, 여기 값은 dvh를 모르는 구형 기기용 예비값이에요) */
+  const h = window.innerHeight || (window.visualViewport && window.visualViewport.height) || 0;
+  if(h) document.documentElement.style.setProperty('--app-h', h+'px');
 }
 setAppVH();
 window.addEventListener('resize', setAppVH);
@@ -2731,7 +2728,7 @@ function renderSettingsScreen(){
       <button class="btn danger-ghost full" style="margin-top:8px;" onclick="logoutDevice()">이 기기 로그아웃</button>
     </div>
 
-    <div style="text-align:center;font-size:10.5px;color:var(--gray-faint);padding:4px 0 16px;">ⓒ 2026 김효경 │ 교사 업무 지원 도구 · v2026.11.23d</div>
+    <div style="text-align:center;font-size:10.5px;color:var(--gray-faint);padding:4px 0 16px;">ⓒ 2026 김효경 │ 교사 업무 지원 도구 · v2026.11.23e</div>
   `;
 }
 
